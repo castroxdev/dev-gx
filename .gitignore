@@ -179,3 +179,19 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Ollama
+.ollama/
+
+# Project outputs
+output/
+outputs/
+generated/
+
+# Node (if frontend added)
+node_modules/
+dist/
+build/
+
+# Extra env files
+*.env
