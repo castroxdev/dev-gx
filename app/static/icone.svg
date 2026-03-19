@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Dev GX Icon</title>
+  <desc id="desc">Monograma DGX geométrico em fundo escuro</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f2428" />
+      <stop offset="100%" stop-color="#090b0d" />
+    </linearGradient>
+    <linearGradient id="stroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7f9fb" />
+      <stop offset="100%" stop-color="#c6ccd3" />
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)" />
+  <rect x="14" y="14" width="100" height="100" rx="22" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="2" />
+
+  <path d="M32 37h22c10.5 0 18 7.1 18 18s-7.5 18-18 18H32V37Zm20 29c6.4 0 10.6-4.1 10.6-11s-4.2-11-10.6-11h-10.3v22H52Z" fill="url(#stroke)" />
+  <path d="M96 37 78.4 63.8 96 91H85.4l-12-18.6L61.4 91H50.8L68.4 63.8 50.8 37h10.6l12 18.5 12-18.5H96Z" fill="#eef2f6" />
+</svg>
