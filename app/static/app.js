@@ -11,24 +11,31 @@ const promptButtons = document.querySelectorAll("[data-prompt]");
 let messages = [];
 let isLoading = false;
 
-
-function renderMessage(role, content) {
+function createMessageElement(role, content = "") {
   const bubble = document.createElement("article");
   bubble.className = `message ${role}`;
   bubble.textContent = content;
   messagesEl.appendChild(bubble);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  return bubble;
 }
 
+function renderMessage(role, content) {
+  createMessageElement(role, content);
+}
+
+function updateMessage(element, content) {
+  element.textContent = content;
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
 
 function setLoading(loading) {
   isLoading = loading;
   inputEl.disabled = loading;
   sendButtonEl.disabled = loading;
   clearButtonEl.disabled = loading;
-  statusTextEl.textContent = loading ? "A gerar resposta..." : "Pronto.";
+  statusTextEl.textContent = loading ? "A gerar resposta em tempo real..." : "Pronto.";
 }
-
 
 function setOllamaStatus(status, detail) {
   const visualStatus = status === "online" ? "online" : status === "degraded" ? "degraded" : "offline";
@@ -46,7 +53,6 @@ function setOllamaStatus(status, detail) {
 
   ollamaDetailEl.textContent = detail;
 }
-
 
 async function loadOllamaStatus() {
   try {
@@ -66,7 +72,6 @@ async function loadOllamaStatus() {
   }
 }
 
-
 function resetChat() {
   if (isLoading) {
     return;
@@ -81,7 +86,6 @@ function resetChat() {
   inputEl.focus();
 }
 
-
 async function sendMessage() {
   if (isLoading) {
     return;
@@ -92,13 +96,17 @@ async function sendMessage() {
     return;
   }
 
-  messages.push({ role: "user", content });
+  const userMessage = { role: "user", content };
+  messages.push(userMessage);
   renderMessage("user", content);
   inputEl.value = "";
   setLoading(true);
 
+  const assistantBubble = createMessageElement("assistant", "");
+  let assistantText = "";
+
   try {
-    const response = await fetch("/api/chat", {
+    const response = await fetch("/api/chat/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -106,17 +114,76 @@ async function sendMessage() {
       body: JSON.stringify({ messages })
     });
 
-    const rawText = await response.text();
-
-    if (!response.ok) {
-      throw new Error(`POST /api/chat falhou com HTTP ${response.status}: ${rawText}`);
+    if (!response.ok || !response.body) {
+      const rawText = await response.text();
+      throw new Error(`POST /api/chat/stream falhou com HTTP ${response.status}: ${rawText}`);
     }
 
-    const data = JSON.parse(rawText);
-    messages.push({ role: "assistant", content: data.reply });
-    renderMessage("assistant", data.reply);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      while (buffer.includes("\n\n")) {
+        const boundary = buffer.indexOf("\n\n");
+        const rawEvent = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+
+        if (!rawEvent.trim()) {
+          continue;
+        }
+
+        const lines = rawEvent.split("\n");
+        let eventName = "message";
+        const dataLines = [];
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            eventName = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            let chunk = line.slice(5);
+            if (chunk.startsWith(" ")) {
+              chunk = chunk.slice(1);
+            }
+            dataLines.push(chunk);
+          }
+        }
+
+        const data = dataLines.join("\n")
+          .replace(/\\\\/g, "\\")
+          .replace(/\\n/g, "\n");
+
+        if (eventName === "error") {
+          throw new Error(data);
+        }
+
+        if (eventName === "done") {
+          continue;
+        }
+
+        assistantText += data;
+        updateMessage(assistantBubble, assistantText);
+      }
+    }
+
+    assistantText += decoder.decode();
+    assistantText = assistantText.trim();
+
+    if (!assistantText) {
+      throw new Error("O streaming terminou sem devolver conteudo.");
+    }
+
+    messages.push({ role: "assistant", content: assistantText });
   } catch (error) {
-    renderMessage("assistant", `Erro: ${error.message}`);
+    const errorMessage = `Erro: ${error.message}`;
+    updateMessage(assistantBubble, errorMessage);
   } finally {
     setLoading(false);
     inputEl.focus();
@@ -124,12 +191,10 @@ async function sendMessage() {
   }
 }
 
-
 formEl.addEventListener("submit", async (event) => {
   event.preventDefault();
   await sendMessage();
 });
-
 
 inputEl.addEventListener("keydown", async (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
@@ -138,9 +203,7 @@ inputEl.addEventListener("keydown", async (event) => {
   }
 });
 
-
 clearButtonEl.addEventListener("click", resetChat);
-
 
 promptButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -148,7 +211,6 @@ promptButtons.forEach((button) => {
     inputEl.focus();
   });
 });
-
 
 resetChat();
 loadOllamaStatus();

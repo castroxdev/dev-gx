@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api.routes import router as api_router
@@ -19,7 +18,6 @@ def create_app() -> FastAPI:
         version="0.2.0",
     )
 
-    app.add_middleware(GZipMiddleware, minimum_size=500)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/health", tags=["health"])

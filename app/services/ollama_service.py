@@ -1,3 +1,5 @@
+import json
+
 import httpx
 
 from config import (
@@ -127,6 +129,54 @@ class OllamaService:
             raise OllamaServiceError("O Ollama nao devolveu conteudo para a resposta.")
 
         return content
+
+    async def chat_stream(self, messages: list[dict[str, str]]):
+        trimmed_messages = self._trim_messages(messages)
+        payload = {
+            "model": self.model,
+            "messages": trimmed_messages,
+            "stream": True,
+            "options": {
+                "num_predict": self.num_predict,
+            },
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream("POST", self.chat_url, json=payload) as response:
+                    response.raise_for_status()
+
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError as exc:
+                            raise OllamaServiceError(
+                                "O Ollama respondeu com um fragmento invalido durante o streaming."
+                            ) from exc
+
+                        message = data.get("message", {})
+                        content = str(message.get("content", ""))
+                        if content:
+                            yield content
+        except httpx.RequestError as exc:
+            status = await self.get_status()
+            raise OllamaServiceError(str(status["detail"])) from exc
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if status_code == 404:
+                raise OllamaServiceError(
+                    f"O endpoint do Ollama nao foi encontrado em {self.chat_url}."
+                ) from exc
+            if status_code == 400:
+                raise OllamaServiceError(
+                    f"O Ollama rejeitou o pedido. Confirma se o modelo '{self.model}' existe e se o payload enviado e valido."
+                ) from exc
+            raise OllamaServiceError(
+                f"O Ollama devolveu erro HTTP {status_code}."
+            ) from exc
 
     def _trim_messages(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
         if not messages:
