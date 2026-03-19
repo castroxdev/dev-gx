@@ -27,6 +27,13 @@ class ChatRequest(BaseModel):
     )
 
 
+class ConversationSyncRequest(BaseModel):
+    messages: list[ChatMessage] = Field(
+        default_factory=list,
+        description="Mensagens persistidas da conversa.",
+    )
+
+
 class GenerateSqlSchemaRequest(BaseModel):
     idea: str = Field(
         ...,

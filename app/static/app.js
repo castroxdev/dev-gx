@@ -30,10 +30,14 @@ const SQL_TERMS = [
   "relaciones"
 ];
 
+const CONVERSATION_STORAGE_KEY = "devgx.currentConversationId";
+
 let messages = [];
 let isLoading = false;
 let currentAbortController = null;
 let stopRequested = false;
+let currentConversationId = null;
+let conversationBootstrapPromise = null;
 
 function escapeHtml(text) {
   return text
@@ -109,7 +113,7 @@ function createMessageElement(role, content = "") {
 }
 
 function renderMessage(role, content) {
-  createMessageElement(role, content);
+  return createMessageElement(role, content);
 }
 
 function updateMessage(element, content) {
@@ -171,18 +175,146 @@ async function loadOllamaStatus() {
   }
 }
 
-function resetChat() {
+function renderConversationMessages() {
+  messagesEl.innerHTML = "";
+
+  if (!messages.length) {
+    renderMessage(
+      "assistant",
+      "Ola! Posso planear o teu produto, modelar entidades e gerar um esquema SQL inicial. Diz-me o que queres construir."
+    );
+    return;
+  }
+
+  messages.forEach((message, index) => {
+    const bubble = renderMessage(message.role, message.content);
+    if (message.role === "assistant" && index > 0) {
+      const previousMessage = messages[index - 1];
+      if (previousMessage?.role === "user" && isSqlIntent(previousMessage.content)) {
+        attachSqlButton(bubble, previousMessage.content);
+      }
+    }
+  });
+}
+
+function setCurrentConversationId(conversationId) {
+  currentConversationId = conversationId;
+  if (conversationId) {
+    localStorage.setItem(CONVERSATION_STORAGE_KEY, conversationId);
+  } else {
+    localStorage.removeItem(CONVERSATION_STORAGE_KEY);
+  }
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const rawText = await response.text();
+  let data = null;
+
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch (error) {
+      throw new Error(`Resposta invalida de ${url}: ${rawText}`);
+    }
+  }
+
+  if (!response.ok) {
+    const detail = data?.detail || rawText || `HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+
+  return data;
+}
+
+async function createConversationOnServer() {
+  return fetchJson("/api/conversations", {
+    method: "POST"
+  });
+}
+
+async function listConversationsFromServer() {
+  return fetchJson("/api/conversations");
+}
+
+async function loadConversationFromServer(conversationId) {
+  return fetchJson(`/api/conversations/${conversationId}`);
+}
+
+async function syncConversationOnServer() {
+  if (!currentConversationId) {
+    return;
+  }
+
+  await fetchJson(`/api/conversations/${currentConversationId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ messages })
+  });
+}
+
+async function loadConversation(conversationId) {
+  const conversation = await loadConversationFromServer(conversationId);
+  setCurrentConversationId(conversation.id);
+  messages = conversation.messages.map((message) => ({
+    role: message.role,
+    content: message.content
+  }));
+  renderConversationMessages();
+}
+
+async function createFreshConversation() {
+  const conversation = await createConversationOnServer();
+  setCurrentConversationId(conversation.id);
+  messages = [];
+  renderConversationMessages();
+}
+
+async function ensureConversationReady() {
+  if (conversationBootstrapPromise) {
+    return conversationBootstrapPromise;
+  }
+
+  conversationBootstrapPromise = (async () => {
+    const savedConversationId = localStorage.getItem(CONVERSATION_STORAGE_KEY);
+    const conversations = await listConversationsFromServer();
+
+    if (savedConversationId && conversations.some((item) => item.id === savedConversationId)) {
+      await loadConversation(savedConversationId);
+      return;
+    }
+
+    if (conversations.length > 0) {
+      await loadConversation(conversations[0].id);
+      return;
+    }
+
+    await createFreshConversation();
+  })();
+
+  try {
+    await conversationBootstrapPromise;
+  } finally {
+    conversationBootstrapPromise = null;
+  }
+}
+
+async function startNewConversation() {
   if (isLoading) {
     return;
   }
 
-  messages = [];
-  messagesEl.innerHTML = "";
-  renderMessage(
-    "assistant",
-    "Ola! Posso planear o teu produto, modelar entidades e gerar um esquema SQL inicial. Diz-me o que queres construir."
-  );
-  inputEl.focus();
+  statusTextEl.textContent = "A criar nova conversa...";
+
+  try {
+    await createFreshConversation();
+    statusTextEl.textContent = "Nova conversa pronta.";
+    inputEl.focus();
+  } catch (error) {
+    statusTextEl.textContent = `Falha ao criar conversa: ${error.message}`;
+  }
 }
 
 function triggerSqlDownload(fileName, sql) {
@@ -198,20 +330,13 @@ function triggerSqlDownload(fileName, sql) {
 }
 
 async function requestSqlFile(idea) {
-  const response = await fetch("/api/sql-schema", {
+  return fetchJson("/api/sql-schema", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ idea })
   });
-
-  const rawText = await response.text();
-  if (!response.ok) {
-    throw new Error(`POST /api/sql-schema falhou com HTTP ${response.status}: ${rawText}`);
-  }
-
-  return JSON.parse(rawText);
 }
 
 function attachSqlButton(messageElement, idea) {
@@ -267,6 +392,8 @@ async function sendMessage() {
   if (isLoading) {
     return;
   }
+
+  await ensureConversationReady();
 
   const content = inputEl.value.trim();
   if (!content) {
@@ -364,6 +491,7 @@ async function sendMessage() {
     }
 
     messages.push({ role: "assistant", content: assistantText });
+    await syncConversationOnServer();
 
     if (shouldOfferSql) {
       attachSqlButton(assistantBubble, content);
@@ -374,15 +502,16 @@ async function sendMessage() {
 
       if (assistantText) {
         updateMessage(assistantBubble, `${assistantText}\n\n[Resposta interrompida]`);
-        messages.push({ role: "assistant", content: assistantText });
+        messages.push({ role: "assistant", content: `${assistantText}\n\n[Resposta interrompida]` });
       } else {
         updateMessage(assistantBubble, "[Resposta interrompida]");
       }
 
+      await syncConversationOnServer();
       statusTextEl.textContent = "Resposta interrompida.";
     } else {
-      const errorMessage = `Erro: ${error.message}`;
-      updateMessage(assistantBubble, errorMessage);
+      updateMessage(assistantBubble, `Erro: ${error.message}`);
+      await syncConversationOnServer();
       statusTextEl.textContent = "Falha ao comunicar com o Ollama.";
     }
   } finally {
@@ -407,7 +536,7 @@ inputEl.addEventListener("keydown", async (event) => {
 });
 
 stopButtonEl.addEventListener("click", stopStreaming);
-clearButtonEl.addEventListener("click", resetChat);
+clearButtonEl.addEventListener("click", startNewConversation);
 
 promptButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -416,5 +545,9 @@ promptButtons.forEach((button) => {
   });
 });
 
-resetChat();
+renderConversationMessages();
+ensureConversationReady().catch((error) => {
+  statusTextEl.textContent = `Falha ao carregar memoria: ${error.message}`;
+});
 loadOllamaStatus();
+

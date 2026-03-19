@@ -1,207 +1,30 @@
-﻿from fastapi import APIRouter, HTTPException, status
+﻿import asyncio
+
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-import re
-import unicodedata
 
 from prompts.planner_prompt import build_chat_system_prompt
-from schemas.request import ChatRequest, GeneratePlanRequest, GenerateSqlSchemaRequest
+from schemas.request import (
+    ChatRequest,
+    ConversationSyncRequest,
+    GeneratePlanRequest,
+    GenerateSqlSchemaRequest,
+)
 from schemas.response import (
     ChatResponse,
+    ConversationResponse,
+    ConversationSummaryResponse,
     GeneratePlanResponse,
     GenerateSqlSchemaResponse,
     OllamaHealthResponse,
 )
+from services.conversation_store import ConversationStore
 from services.ollama_service import OllamaService, OllamaServiceError
 
 
 router = APIRouter(prefix="/api", tags=["planner"])
 ollama_service = OllamaService()
-
-IN_SCOPE_TERMS = (
-    "software",
-    "app",
-    "aplicativo",
-    "aplicacao",
-    "sistema",
-    "site",
-    "website",
-    "web",
-    "mvp",
-    "produto digital",
-    "arquitetura",
-    "api",
-    "backend",
-    "frontend",
-    "banco de dados",
-    "base de dados",
-    "sql",
-    "schema",
-    "tabela",
-    "entidade",
-    "relacao",
-    "indice",
-    "crud",
-    "autenticacao",
-    "login",
-    "deploy",
-    "docker",
-    "microservico",
-    "fastapi",
-    "python",
-    "javascript",
-    "typescript",
-    "react",
-    "node",
-    "llm",
-    "prompt",
-    "chatbot",
-    "api design",
-    "database",
-    "application",
-    "system design",
-    "architecture",
-    "endpoint",
-    "framework",
-    "bug",
-    "debug",
-    "repository",
-    "repo",
-    "codigo",
-    "programacion",
-    "programacao",
-    "api rest",
-    "servicio",
-    "microservicio",
-    "base de datos",
-    "tabla",
-    "entidades",
-    "relaciones",
-    "autenticacion",
-    "autenticacion",
-    "despliegue",
-    "frontend",
-    "backend",
-    "fullstack",
-)
-
-LANGUAGE_CONTROL_TERMS = (
-    "responde em",
-    "responder em",
-    "fale em",
-    "fala em",
-    "em portugues",
-    "em ingles",
-    "em espanhol",
-    "portugues",
-    "ingles",
-    "espanhol",
-    "respond in",
-    "reply in",
-    "speak in",
-    "english",
-    "spanish",
-    "portuguese",
-    "responde en",
-    "responder en",
-    "en espanol",
-    "en ingles",
-    "idioma",
-    "language",
-)
-
-GREETING_TERMS = (
-    "oi",
-    "ola",
-    "olaa",
-    "oi tudo bem",
-    "ola tudo bem",
-    "tudo bem",
-    "bom dia",
-    "boa manha",
-    "boa tarde",
-    "boa noite",
-    "e ai",
-    "fala",
-    "hey",
-    "hello",
-    "hi",
-    "good morning",
-    "good afternoon",
-    "good evening",
-    "how are you",
-    "hola",
-    "hola que tal",
-    "que tal",
-    "buen dia",
-    "buenos dias",
-    "buenas tardes",
-    "buenas noches",
-)
-
-
-def _normalize_text(text: str) -> str:
-    lowered = text.lower().strip()
-    normalized = unicodedata.normalize("NFKD", lowered)
-    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
-
-
-def _normalize_for_match(text: str) -> str:
-    normalized = _normalize_text(text)
-    normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
-    return " ".join(normalized.split())
-
-
-def _is_in_scope(text: str) -> bool:
-    normalized = _normalize_text(text)
-    if not normalized:
-        return False
-
-    return any(term in normalized for term in IN_SCOPE_TERMS)
-
-
-def _is_language_control(text: str) -> bool:
-    normalized = _normalize_text(text)
-    if not normalized:
-        return False
-
-    return any(term in normalized for term in LANGUAGE_CONTROL_TERMS)
-
-
-def _is_cordial_greeting(text: str) -> bool:
-    normalized = _normalize_for_match(text)
-    if not normalized:
-        return False
-
-    return any(
-        re.search(rf"(?:^|\s){re.escape(greeting)}(?:$|\s)", normalized) is not None
-        for greeting in GREETING_TERMS
-    )
-
-
-def _conversation_is_in_scope(payload: ChatRequest) -> bool:
-    user_messages = [msg.content for msg in payload.messages if msg.role == "user"]
-    if not user_messages:
-        return False
-
-    latest_user = user_messages[-1]
-
-    if _is_cordial_greeting(latest_user):
-        return True
-
-    if _is_language_control(latest_user):
-        return True
-
-    if _is_in_scope(latest_user):
-        return True
-
-    return any(_is_in_scope(message) for message in user_messages[:-1])
-
-
-def _latest_user_message(payload: ChatRequest) -> str:
-    user_messages = [msg.content for msg in payload.messages if msg.role == "user"]
-    if not user_messages:
-        return ""
-    return user_messages[-1].strip()
+conversation_store = ConversationStore()
 
 
 @router.get(
@@ -212,6 +35,63 @@ def _latest_user_message(payload: ChatRequest) -> str:
 async def ollama_healthcheck() -> OllamaHealthResponse:
     status_payload = await ollama_service.get_status()
     return OllamaHealthResponse(**status_payload)
+
+
+@router.get(
+    "/conversations",
+    response_model=list[ConversationSummaryResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def list_conversations() -> list[ConversationSummaryResponse]:
+    items = await asyncio.to_thread(conversation_store.list_conversations)
+    return [ConversationSummaryResponse(**item) for item in items]
+
+
+@router.post(
+    "/conversations",
+    response_model=ConversationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_conversation() -> ConversationResponse:
+    conversation = await asyncio.to_thread(conversation_store.create_conversation)
+    return ConversationResponse(**conversation)
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_conversation(conversation_id: str) -> ConversationResponse:
+    conversation = await asyncio.to_thread(conversation_store.get_conversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversa nao encontrada.",
+        )
+    return ConversationResponse(**conversation)
+
+
+@router.put(
+    "/conversations/{conversation_id}",
+    response_model=ConversationResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def sync_conversation(
+    conversation_id: str,
+    payload: ConversationSyncRequest,
+) -> ConversationResponse:
+    conversation = await asyncio.to_thread(
+        conversation_store.replace_messages,
+        conversation_id,
+        [message.model_dump() for message in payload.messages],
+    )
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversa nao encontrada.",
+        )
+    return ConversationResponse(**conversation)
 
 
 @router.post(
