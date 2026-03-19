@@ -9,10 +9,10 @@ app/
 |-- api/
 |   |-- __init__.py
 |   `-- routes.py
-|-- chat_ui.py
 |-- prompts/
 |   |-- __init__.py
-|   `-- planner_prompt.py
+|   |-- planner_prompt.py
+|   `-- planner_system_prompt.py
 |-- schemas/
 |   |-- __init__.py
 |   |-- request.py
@@ -20,6 +20,8 @@ app/
 |-- services/
 |   |-- __init__.py
 |   `-- ollama_service.py
+|-- ui/
+|   `-- index.html
 |-- tools/
 |   |-- api_design.py
 |   |-- database.py
@@ -43,20 +45,28 @@ pip install -r requirements.txt
 Garante primeiro que o Ollama esta ativo e que o modelo `qwen2.5-coder:7b` esta disponivel.
 
 ```bash
-python chat_ui.py
+uvicorn main:app --reload
 ```
 
-A interface abre uma janela simples com historico da conversa, campo de texto, botao de envio e opcao para iniciar uma nova conversa.
+A interface web fica disponivel em [http://localhost:8000](http://localhost:8000).
 
 ## Correr o servidor
 
-Se quiseres manter a API existente para gerar planos tecnicos:
+O servidor tambem continua a expor a API para gerar planos tecnicos e conversar com o modelo:
 
 ```bash
 uvicorn main:app --reload
 ```
 
-## Endpoint principal
+## Endpoints
+
+`GET /`
+
+Abre a interface web do chat.
+
+`GET /health`
+
+Healthcheck simples da aplicacao.
 
 `POST /generate-plan`
 
@@ -73,5 +83,28 @@ Exemplo de resposta:
 ```json
 {
   "plan": "..."
+}
+```
+
+`POST /chat`
+
+Exemplo de payload:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Quero um MVP para gerir tarefas de equipas remotas."
+    }
+  ]
+}
+```
+
+Exemplo de resposta:
+
+```json
+{
+  "reply": "# 1. Resumo da solucao\n..."
 }
 ```
