@@ -7,6 +7,8 @@ const inputEl = document.getElementById("messageInput");
 const sendButtonEl = document.getElementById("sendButton");
 const stopButtonEl = document.getElementById("stopButton");
 const clearButtonEl = document.getElementById("clearButton");
+const newConversationSidebarButtonEl = document.getElementById("newConversationSidebarButton");
+const conversationListEl = document.getElementById("conversationList");
 const promptButtons = document.querySelectorAll("[data-prompt]");
 
 const SQL_TERMS = [
@@ -38,6 +40,7 @@ let currentAbortController = null;
 let stopRequested = false;
 let currentConversationId = null;
 let conversationBootstrapPromise = null;
+let conversationSummaries = [];
 
 function escapeHtml(text) {
   return text
@@ -137,6 +140,7 @@ function setLoading(loading) {
   sendButtonEl.disabled = loading;
   stopButtonEl.disabled = !loading;
   clearButtonEl.disabled = loading;
+  newConversationSidebarButtonEl.disabled = loading;
   statusTextEl.textContent = loading ? "A gerar resposta em tempo real..." : "Pronto.";
 }
 
@@ -197,6 +201,55 @@ function renderConversationMessages() {
   });
 }
 
+function renderConversationList() {
+  conversationListEl.innerHTML = "";
+
+  if (!conversationSummaries.length) {
+    const emptyState = document.createElement("div");
+    emptyState.className = "conversation-empty";
+    emptyState.textContent = "Ainda nao tens conversas guardadas.";
+    conversationListEl.appendChild(emptyState);
+    return;
+  }
+
+  conversationSummaries.forEach((conversation) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "conversation-item";
+    if (conversation.id === currentConversationId) {
+      button.classList.add("active");
+    }
+
+    const title = document.createElement("div");
+    title.className = "conversation-item-title";
+    title.textContent = conversation.title || "Nova conversa";
+
+    const preview = document.createElement("div");
+    preview.className = "conversation-item-preview";
+    preview.textContent = conversation.last_message_preview || "Sem mensagens ainda.";
+
+    button.appendChild(title);
+    button.appendChild(preview);
+    button.addEventListener("click", async () => {
+      if (isLoading || conversation.id === currentConversationId) {
+        return;
+      }
+
+      statusTextEl.textContent = "A abrir conversa...";
+
+      try {
+        await loadConversation(conversation.id);
+        statusTextEl.textContent = "Conversa carregada.";
+        inputEl.focus();
+      } catch (error) {
+        statusTextEl.textContent = `Falha ao abrir conversa: ${error.message}`;
+      }
+    });
+
+    conversationListEl.appendChild(button);
+  });
+}
+
 function setCurrentConversationId(conversationId) {
   currentConversationId = conversationId;
   if (conversationId) {
@@ -241,6 +294,11 @@ async function loadConversationFromServer(conversationId) {
   return fetchJson(`/api/conversations/${conversationId}`);
 }
 
+async function refreshConversationList() {
+  conversationSummaries = await listConversationsFromServer();
+  renderConversationList();
+}
+
 async function syncConversationOnServer() {
   if (!currentConversationId) {
     return;
@@ -253,6 +311,8 @@ async function syncConversationOnServer() {
     },
     body: JSON.stringify({ messages })
   });
+
+  await refreshConversationList();
 }
 
 async function loadConversation(conversationId) {
@@ -263,12 +323,14 @@ async function loadConversation(conversationId) {
     content: message.content
   }));
   renderConversationMessages();
+  renderConversationList();
 }
 
 async function createFreshConversation() {
   const conversation = await createConversationOnServer();
   setCurrentConversationId(conversation.id);
   messages = [];
+  await refreshConversationList();
   renderConversationMessages();
 }
 
@@ -279,15 +341,15 @@ async function ensureConversationReady() {
 
   conversationBootstrapPromise = (async () => {
     const savedConversationId = localStorage.getItem(CONVERSATION_STORAGE_KEY);
-    const conversations = await listConversationsFromServer();
+    await refreshConversationList();
 
-    if (savedConversationId && conversations.some((item) => item.id === savedConversationId)) {
+    if (savedConversationId && conversationSummaries.some((item) => item.id === savedConversationId)) {
       await loadConversation(savedConversationId);
       return;
     }
 
-    if (conversations.length > 0) {
-      await loadConversation(conversations[0].id);
+    if (conversationSummaries.length > 0) {
+      await loadConversation(conversationSummaries[0].id);
       return;
     }
 
@@ -537,6 +599,7 @@ inputEl.addEventListener("keydown", async (event) => {
 
 stopButtonEl.addEventListener("click", stopStreaming);
 clearButtonEl.addEventListener("click", startNewConversation);
+newConversationSidebarButtonEl.addEventListener("click", startNewConversation);
 
 promptButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -546,8 +609,8 @@ promptButtons.forEach((button) => {
 });
 
 renderConversationMessages();
+renderConversationList();
 ensureConversationReady().catch((error) => {
   statusTextEl.textContent = `Falha ao carregar memoria: ${error.message}`;
 });
 loadOllamaStatus();
-
