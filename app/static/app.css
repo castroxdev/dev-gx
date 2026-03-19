@@ -292,14 +292,14 @@ h2 {
 }
 
 .conversation-item {
-  width: 100%;
-  text-align: left;
-  padding: 12px 13px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 10px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
-  color: var(--text);
-  cursor: pointer;
   transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
@@ -312,6 +312,36 @@ h2 {
 .conversation-item.active {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.06));
   border-color: rgba(255, 255, 255, 0.18);
+}
+
+.conversation-open-button,
+.conversation-delete-button {
+  border: 1px solid transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.conversation-open-button {
+  width: 100%;
+  text-align: left;
+  padding: 2px;
+  background: transparent;
+  color: inherit;
+}
+
+.conversation-delete-button {
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f0c4c4;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.conversation-delete-button:hover {
+  background: rgba(158, 93, 93, 0.18);
+  border-color: rgba(240, 196, 196, 0.24);
 }
 
 .conversation-item-title {
@@ -674,9 +704,14 @@ textarea:disabled {
   .chat-header,
   .composer-footer,
   .composer-actions,
-  .panel-head {
+  .panel-head,
+  .conversation-item {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .conversation-item {
+    display: flex;
   }
 
   .messages {
@@ -695,7 +730,8 @@ textarea:disabled {
   .primary-button,
   .secondary-button,
   .stop-button,
-  .compact-button {
+  .compact-button,
+  .conversation-delete-button {
     width: 100%;
   }
 

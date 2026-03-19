@@ -1,6 +1,6 @@
 ﻿import asyncio
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
 from prompts.planner_prompt import build_chat_system_prompt
@@ -92,6 +92,20 @@ async def sync_conversation(
             detail="Conversa nao encontrada.",
         )
     return ConversationResponse(**conversation)
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_conversation(conversation_id: str) -> Response:
+    deleted = await asyncio.to_thread(conversation_store.delete_conversation, conversation_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversa nao encontrada.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

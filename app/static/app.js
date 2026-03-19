@@ -213,24 +213,22 @@ function renderConversationList() {
   }
 
   conversationSummaries.forEach((conversation) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "conversation-item";
+    const item = document.createElement("div");
+    item.className = "conversation-item";
     if (conversation.id === currentConversationId) {
-      button.classList.add("active");
+      item.classList.add("active");
     }
+
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.className = "conversation-open-button";
 
     const title = document.createElement("div");
     title.className = "conversation-item-title";
     title.textContent = conversation.title || "Nova conversa";
 
-    const preview = document.createElement("div");
-    preview.className = "conversation-item-preview";
-    preview.textContent = conversation.last_message_preview || "Sem mensagens ainda.";
-
-    button.appendChild(title);
-    button.appendChild(preview);
-    button.addEventListener("click", async () => {
+    openButton.appendChild(title);
+    openButton.addEventListener("click", async () => {
       if (isLoading || conversation.id === currentConversationId) {
         return;
       }
@@ -246,7 +244,34 @@ function renderConversationList() {
       }
     });
 
-    conversationListEl.appendChild(button);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "conversation-delete-button";
+    deleteButton.textContent = "Apagar";
+    deleteButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      if (isLoading) {
+        return;
+      }
+
+      const confirmed = window.confirm(`Apagar a conversa \"${conversation.title || "Nova conversa"}\"?`);
+      if (!confirmed) {
+        return;
+      }
+
+      statusTextEl.textContent = "A apagar conversa...";
+
+      try {
+        await deleteConversation(conversation.id);
+        statusTextEl.textContent = "Conversa apagada.";
+      } catch (error) {
+        statusTextEl.textContent = `Falha ao apagar conversa: ${error.message}`;
+      }
+    });
+
+    item.appendChild(openButton);
+    item.appendChild(deleteButton);
+    conversationListEl.appendChild(item);
   });
 }
 
@@ -294,6 +319,12 @@ async function loadConversationFromServer(conversationId) {
   return fetchJson(`/api/conversations/${conversationId}`);
 }
 
+async function deleteConversationOnServer(conversationId) {
+  await fetchJson(`/api/conversations/${conversationId}`, {
+    method: "DELETE"
+  });
+}
+
 async function refreshConversationList() {
   conversationSummaries = await listConversationsFromServer();
   renderConversationList();
@@ -332,6 +363,25 @@ async function createFreshConversation() {
   messages = [];
   await refreshConversationList();
   renderConversationMessages();
+}
+
+async function deleteConversation(conversationId) {
+  const deletingCurrentConversation = conversationId === currentConversationId;
+
+  await deleteConversationOnServer(conversationId);
+  await refreshConversationList();
+
+  if (!deletingCurrentConversation) {
+    return;
+  }
+
+  if (conversationSummaries.length > 0) {
+    await loadConversation(conversationSummaries[0].id);
+    return;
+  }
+
+  setCurrentConversationId(null);
+  await createFreshConversation();
 }
 
 async function ensureConversationReady() {
@@ -614,3 +664,4 @@ ensureConversationReady().catch((error) => {
   statusTextEl.textContent = `Falha ao carregar memoria: ${error.message}`;
 });
 loadOllamaStatus();
+

@@ -18,6 +18,7 @@ class ConversationStore:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
     def _initialize(self) -> None:
@@ -168,6 +169,15 @@ class ConversationStore:
             connection.commit()
 
         return self.get_conversation(conversation_id)
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM conversations WHERE id = ?",
+                (conversation_id,),
+            )
+            connection.commit()
+            return cursor.rowcount > 0
 
     def _serialize_summary(self, row: sqlite3.Row) -> dict[str, Any]:
         preview = (row["last_message_preview"] or "").strip()
