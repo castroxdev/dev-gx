@@ -1,110 +1,93 @@
 # Dev GX
 
-Projeto em Python com FastAPI e uma interface simples de chat para conversar com um modelo local no Ollama.
+Planner tecnico com FastAPI, interface web mais completa e integracao local com Ollama.
+
+O projeto usa uma arquitetura simples por camadas:
+- `web/` para a interface
+- `api/` para os endpoints JSON
+- `services/` para integracao com o Ollama
+- `prompts/` e `tools/` para orientar o comportamento do planner
+
+## Funcionalidades
+
+- Chat tecnico via browser
+- Planeamento de MVP
+- Tool interna `database` para modelacao e esquema SQL inicial
+- Healthcheck da aplicacao e do Ollama
+- Interface web com prompts rapidos e estado do modelo
 
 ## Estrutura
 
 ```text
 app/
 |-- api/
-|   |-- __init__.py
 |   `-- routes.py
 |-- prompts/
-|   |-- __init__.py
 |   |-- planner_prompt.py
 |   `-- planner_system_prompt.py
 |-- schemas/
-|   |-- __init__.py
 |   |-- request.py
 |   `-- response.py
 |-- services/
-|   |-- __init__.py
 |   `-- ollama_service.py
-|-- ui/
+|-- static/
+|   |-- app.css
+|   `-- app.js
+|-- templates/
 |   `-- index.html
 |-- tools/
-|   |-- api_design.py
+|   |-- base.py
 |   |-- database.py
 |   |-- entities.py
+|   |-- api_design.py
 |   `-- roadmap.py
+|-- web/
+|   `-- routes.py
 |-- config.py
 |-- main.py
 `-- requirements.txt
 ```
 
-## Instalar dependencias
+## Como correr
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
+Garante primeiro que:
+- o Ollama esta ativo
+- o modelo `qwen2.5-coder:7b` existe localmente
 
-## Interface de chat
-
-Garante primeiro que o Ollama esta ativo e que o modelo `qwen2.5-coder:7b` esta disponivel.
+Depois:
 
 ```bash
 uvicorn main:app --reload
 ```
 
-A interface web fica disponivel em [http://localhost:8000](http://localhost:8000).
-
-## Correr o servidor
-
-O servidor tambem continua a expor a API para gerar planos tecnicos e conversar com o modelo:
-
-```bash
-uvicorn main:app --reload
-```
+Interface web:
+- [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
 ## Endpoints
 
-`GET /`
+- `GET /`
+- `GET /health`
+- `GET /api/health/ollama`
+- `POST /api/chat`
+- `POST /api/generate-plan`
 
-Abre a interface web do chat.
-
-`GET /health`
-
-Healthcheck simples da aplicacao.
-
-`POST /generate-plan`
-
-Exemplo de payload:
-
-```json
-{
-  "idea": "Plataforma para gerir tarefas de equipas remotas com relatorios semanais."
-}
-```
-
-Exemplo de resposta:
-
-```json
-{
-  "plan": "..."
-}
-```
-
-`POST /chat`
-
-Exemplo de payload:
+### Exemplo de `POST /api/chat`
 
 ```json
 {
   "messages": [
     {
       "role": "user",
-      "content": "Quero um MVP para gerir tarefas de equipas remotas."
+      "content": "Cria a base de dados SQL para um sistema de tarefas com utilizadores, projetos e tarefas."
     }
   ]
 }
 ```
 
-Exemplo de resposta:
+### Exemplo de `POST /api/generate-plan`
 
 ```json
 {
-  "reply": "# 1. Resumo da solucao\n..."
+  "idea": "Plataforma para gerir tarefas de equipas remotas com relatorios semanais."
 }
 ```

@@ -1,0 +1,103 @@
+﻿<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dev GX Planner</title>
+  <link rel="icon" type="image/png" href="/static/icone.png">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">FastAPI + Ollama</span>
+
+        <div class="brand">
+          <img class="brand-icon" src="/static/icone.png" alt="Dev GX icon">
+          <div class="brand-copy">
+            <h1>Dev GX Planner</h1>
+            <p class="hero-subtitle">Assistente técnico local para planear apps, bases de dados e MVPs.</p>
+          </div>
+        </div>
+
+        <p class="lead">
+          Planeia produtos digitais, modela entidades, gera esquema SQL inicial e organiza MVPs com o modelo local
+          <strong>qwen2.5-coder:7b</strong>.
+        </p>
+      </div>
+
+      <div class="status-card">
+        <div class="status-label">Estado do Ollama</div>
+        <div class="status-pill" id="ollamaStatus">A verificar...</div>
+        <p class="status-detail" id="ollamaDetail">
+          A interface vai testar a ligação local automaticamente.
+        </p>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <aside class="sidebar">
+        <div class="panel">
+          <h2>Capacidades</h2>
+          <ul class="feature-list">
+            <li>Planeamento técnico de MVP</li>
+            <li>Modelação de entidades</li>
+            <li>Esquema SQL inicial</li>
+            <li>API e backend sugeridos</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h2>Prompts rápidos</h2>
+          <div class="prompt-list">
+            <button class="prompt-chip" type="button" data-prompt="Cria a base de dados SQL para um sistema de tarefas com utilizadores, projetos, tarefas e comentários.">
+              SQL para tarefas
+            </button>
+
+            <button class="prompt-chip" type="button" data-prompt="Planeia um MVP de e-commerce para pequenos negócios, com backend, frontend, entidades e API.">
+              MVP e-commerce
+            </button>
+
+            <button class="prompt-chip" type="button" data-prompt="Gera as tabelas e o schema SQL para uma app SaaS de reservas com clientes, serviços e agendamentos.">
+              SaaS de reservas
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="chat panel">
+        <header class="chat-header">
+          <div>
+            <h2>Chat técnico</h2>
+            <p>
+              Faz perguntas em português, inglês ou espanhol. Por defeito, o bot responde em português.
+            </p>
+          </div>
+          <button class="secondary-button" id="clearButton" type="button">Nova conversa</button>
+        </header>
+
+        <div class="messages" id="messages">
+          <!-- mensagens inseridas via JS -->
+        </div>
+
+        <form class="composer" id="chatForm">
+          <label class="composer-label" for="messageInput">Pedido</label>
+
+          <textarea
+            id="messageInput"
+            placeholder="Ex.: cria a base de dados SQL para um sistema de tarefas com utilizadores, projetos, tarefas e comentários."
+            required
+          ></textarea>
+
+          <div class="composer-footer">
+            <span class="helper-text" id="statusText">Pronto.</span>
+            <button class="primary-button" id="sendButton" type="submit">Enviar</button>
+          </div>
+        </form>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
