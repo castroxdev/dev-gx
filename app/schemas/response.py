@@ -15,3 +15,9 @@ class OllamaHealthResponse(BaseModel):
     base_url: str = Field(..., description="URL base usada para comunicar com o Ollama.")
     detail: str = Field(..., description="Detalhe textual do estado.")
     model_available: bool = Field(..., description="Indica se o modelo configurado existe no Ollama.")
+
+
+class GenerateSqlSchemaResponse(BaseModel):
+    file_path: str = Field(..., description="Caminho absoluto do ficheiro SQL gerado.")
+    file_name: str = Field(..., description="Nome do ficheiro SQL gerado.")
+    sql: str = Field(..., description="Conteudo SQL salvo no ficheiro.")

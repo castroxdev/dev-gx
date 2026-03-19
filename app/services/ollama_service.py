@@ -1,4 +1,6 @@
-import json
+﻿import json
+import re
+from pathlib import Path
 
 import httpx
 
@@ -14,6 +16,7 @@ from config import (
     OLLAMA_TIMEOUT_SECONDS,
 )
 from prompts.planner_prompt import build_planner_prompt
+from prompts.sql_prompt import build_sql_schema_prompt
 
 
 class OllamaServiceError(Exception):
@@ -110,6 +113,25 @@ class OllamaService:
 
         return generated_text
 
+    async def generate_sql_schema(self, idea: str) -> str:
+        prompt = build_sql_schema_prompt(idea)
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_predict": self.num_predict,
+            },
+        }
+
+        data = await self._post_json(self.generate_url, payload)
+        generated_text = data.get("response", "").strip()
+
+        if not generated_text:
+            raise OllamaServiceError("O Ollama nao devolveu conteudo para o schema SQL.")
+
+        return self._extract_sql(generated_text)
+
     async def chat(self, messages: list[dict[str, str]]) -> str:
         trimmed_messages = self._trim_messages(messages)
         payload = {
@@ -178,6 +200,15 @@ class OllamaService:
                 f"O Ollama devolveu erro HTTP {status_code}."
             ) from exc
 
+    def save_sql_schema(self, sql: str, file_name: str | None = None) -> tuple[str, str]:
+        target_dir = Path(__file__).resolve().parent.parent / "generated" / "sql"
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_name = self._sanitize_file_name(file_name)
+        file_path = target_dir / f"{safe_name}.sql"
+        file_path.write_text(sql.strip() + "\n", encoding="utf-8")
+        return str(file_path), file_path.name
+
     def _trim_messages(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
         if not messages:
             return []
@@ -200,6 +231,22 @@ class OllamaService:
             )
 
         return system_messages + normalized_recent_messages
+
+    def _sanitize_file_name(self, raw_name: str | None) -> str:
+        if not raw_name:
+            return "schema"
+
+        normalized = raw_name.strip().lower()
+        normalized = re.sub(r"\.sql$", "", normalized)
+        normalized = re.sub(r"[^a-z0-9_-]+", "_", normalized)
+        normalized = normalized.strip("_-")
+        return normalized or "schema"
+
+    def _extract_sql(self, text: str) -> str:
+        fenced_match = re.search(r"```sql\s*(.*?)```", text, re.IGNORECASE | re.DOTALL)
+        if fenced_match:
+            return fenced_match.group(1).strip()
+        return text.strip()
 
     async def _post_json(self, url: str, payload: dict) -> dict:
         try:

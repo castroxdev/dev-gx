@@ -1,8 +1,16 @@
+from tools.api_design import api_design_tool
 from tools.base import PlannerTool
 from tools.database import database_tool
+from tools.entities import entities_tool
+from tools.roadmap import roadmap_tool
 
 
-AVAILABLE_TOOLS: tuple[PlannerTool, ...] = (database_tool,)
+AVAILABLE_TOOLS: tuple[PlannerTool, ...] = (
+    database_tool,
+    entities_tool,
+    api_design_tool,
+    roadmap_tool,
+)
 
 
 def build_tools_prompt() -> str:

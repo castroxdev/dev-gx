@@ -1,4 +1,4 @@
-# Dev GX
+﻿# Dev GX
 
 Planner tecnico com FastAPI, interface web mais completa e integracao local com Ollama.
 
@@ -12,7 +12,8 @@ O projeto usa uma arquitetura simples por camadas:
 
 - Chat tecnico via browser
 - Planeamento de MVP
-- Tool interna `database` para modelacao e esquema SQL inicial
+- Tools internas para base de dados, entidades, API e roadmap
+- Geracao e gravacao automatica de schema SQL em ficheiro `.sql`
 - Healthcheck da aplicacao e do Ollama
 - Interface web com prompts rapidos e estado do modelo
 
@@ -24,7 +25,8 @@ app/
 |   `-- routes.py
 |-- prompts/
 |   |-- planner_prompt.py
-|   `-- planner_system_prompt.py
+|   |-- planner_system_prompt.py
+|   `-- sql_prompt.py
 |-- schemas/
 |   |-- request.py
 |   `-- response.py
@@ -32,7 +34,8 @@ app/
 |   `-- ollama_service.py
 |-- static/
 |   |-- app.css
-|   `-- app.js
+|   |-- app.js
+|   `-- icone.png
 |-- templates/
 |   `-- index.html
 |-- tools/
@@ -43,6 +46,8 @@ app/
 |   `-- roadmap.py
 |-- web/
 |   `-- routes.py
+|-- generated/
+|   `-- sql/
 |-- config.py
 |-- main.py
 `-- requirements.txt
@@ -69,6 +74,8 @@ Interface web:
 - `GET /health`
 - `GET /api/health/ollama`
 - `POST /api/chat`
+- `POST /api/chat/stream`
+- `POST /api/sql-schema`
 - `POST /api/generate-plan`
 
 ### Exemplo de `POST /api/chat`
@@ -83,6 +90,17 @@ Interface web:
   ]
 }
 ```
+
+### Exemplo de `POST /api/sql-schema`
+
+```json
+{
+  "idea": "Cria a base de dados para um sistema de tarefas com utilizadores, projetos, tarefas e comentarios.",
+  "file_name": "task_system_schema"
+}
+```
+
+O ficheiro sera salvo em `generated/sql/`.
 
 ### Exemplo de `POST /api/generate-plan`
 

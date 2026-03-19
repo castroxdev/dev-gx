@@ -4,8 +4,13 @@ import re
 import unicodedata
 
 from prompts.planner_prompt import build_chat_system_prompt
-from schemas.request import ChatRequest, GeneratePlanRequest
-from schemas.response import ChatResponse, GeneratePlanResponse, OllamaHealthResponse
+from schemas.request import ChatRequest, GeneratePlanRequest, GenerateSqlSchemaRequest
+from schemas.response import (
+    ChatResponse,
+    GeneratePlanResponse,
+    GenerateSqlSchemaResponse,
+    OllamaHealthResponse,
+)
 from services.ollama_service import OllamaService, OllamaServiceError
 
 
@@ -134,7 +139,6 @@ GREETING_TERMS = (
 )
 
 
-
 def _normalize_text(text: str) -> str:
     lowered = text.lower().strip()
     normalized = unicodedata.normalize("NFKD", lowered)
@@ -225,6 +229,28 @@ async def generate_plan(payload: GeneratePlanRequest) -> GeneratePlanResponse:
         ) from exc
 
     return GeneratePlanResponse(plan=plan)
+
+
+@router.post(
+    "/sql-schema",
+    response_model=GenerateSqlSchemaResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_sql_schema(payload: GenerateSqlSchemaRequest) -> GenerateSqlSchemaResponse:
+    try:
+        sql = await ollama_service.generate_sql_schema(payload.idea)
+        file_path, file_name = ollama_service.save_sql_schema(sql, payload.file_name)
+    except OllamaServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return GenerateSqlSchemaResponse(
+        file_path=file_path,
+        file_name=file_name,
+        sql=sql,
+    )
 
 
 @router.post(

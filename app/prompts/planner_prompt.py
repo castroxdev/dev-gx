@@ -36,5 +36,8 @@ def build_chat_system_prompt() -> str:
         "Usa portugues por defeito. "
         "So respondes em portugues, ingles ou espanhol. "
         "Se pedirem base de dados, modela entidades, relacoes, indices e gera SQL inicial. "
+        "Se pedirem API, define endpoints simples de MVP. "
+        "Se pedirem entidades, lista campos e responsabilidades principais. "
+        "Se pedirem implementacao, organiza um roadmap curto por fases. "
         "Evita introducoes longas e evita repetir contexto."
     )

@@ -5,16 +5,104 @@ const ollamaDetailEl = document.getElementById("ollamaDetail");
 const formEl = document.getElementById("chatForm");
 const inputEl = document.getElementById("messageInput");
 const sendButtonEl = document.getElementById("sendButton");
+const stopButtonEl = document.getElementById("stopButton");
 const clearButtonEl = document.getElementById("clearButton");
 const promptButtons = document.querySelectorAll("[data-prompt]");
 
+const SQL_TERMS = [
+  "sql",
+  "schema",
+  "base de dados",
+  "banco de dados",
+  "base de datos",
+  "database",
+  "tabela",
+  "tabelas",
+  "tabla",
+  "tablas",
+  "postgres",
+  "postgresql",
+  "sqlite",
+  "mysql",
+  "relacao",
+  "relacoes",
+  "relacion",
+  "relaciones"
+];
+
 let messages = [];
 let isLoading = false;
+let currentAbortController = null;
+let stopRequested = false;
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function normalizeText(text) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function isSqlIntent(text) {
+  const normalized = normalizeText(text || "");
+  return SQL_TERMS.some((term) => normalized.includes(term));
+}
+
+function extractSqlBlock(text) {
+  const fenced = text.match(/```sql\s*([\s\S]*?)```/i);
+  if (fenced) {
+    return fenced[1].trim();
+  }
+
+  if (/create\s+table|alter\s+table|create\s+index|insert\s+into/i.test(text)) {
+    return text.trim();
+  }
+
+  return null;
+}
+
+function formatAssistantContent(text) {
+  const sql = extractSqlBlock(text);
+  if (!sql) {
+    return `<div class="message-text">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
+  }
+
+  let intro = text;
+  const fenced = text.match(/```sql\s*[\s\S]*?```/i);
+  if (fenced) {
+    intro = text.replace(fenced[0], "").trim();
+  } else {
+    intro = "";
+  }
+
+  const introHtml = intro
+    ? `<div class="message-text">${escapeHtml(intro).replace(/\n/g, "<br>")}</div>`
+    : "";
+
+  return `${introHtml}<div class="sql-block"><div class="sql-label">SQL</div><pre><code>${escapeHtml(sql)}</code></pre></div>`;
+}
 
 function createMessageElement(role, content = "") {
   const bubble = document.createElement("article");
   bubble.className = `message ${role}`;
-  bubble.textContent = content;
+
+  const contentEl = document.createElement("div");
+  contentEl.className = "message-content";
+  if (role === "assistant") {
+    contentEl.innerHTML = formatAssistantContent(content);
+  } else {
+    contentEl.textContent = content;
+  }
+
+  bubble.appendChild(contentEl);
   messagesEl.appendChild(bubble);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return bubble;
@@ -25,7 +113,17 @@ function renderMessage(role, content) {
 }
 
 function updateMessage(element, content) {
-  element.textContent = content;
+  const contentEl = element.querySelector(".message-content");
+  if (!contentEl) {
+    return;
+  }
+
+  if (element.classList.contains("assistant")) {
+    contentEl.innerHTML = formatAssistantContent(content);
+  } else {
+    contentEl.textContent = content;
+  }
+
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
@@ -33,6 +131,7 @@ function setLoading(loading) {
   isLoading = loading;
   inputEl.disabled = loading;
   sendButtonEl.disabled = loading;
+  stopButtonEl.disabled = !loading;
   clearButtonEl.disabled = loading;
   statusTextEl.textContent = loading ? "A gerar resposta em tempo real..." : "Pronto.";
 }
@@ -86,6 +185,84 @@ function resetChat() {
   inputEl.focus();
 }
 
+function triggerSqlDownload(fileName, sql) {
+  const blob = new Blob([sql], { type: "application/sql;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function requestSqlFile(idea) {
+  const response = await fetch("/api/sql-schema", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ idea })
+  });
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    throw new Error(`POST /api/sql-schema falhou com HTTP ${response.status}: ${rawText}`);
+  }
+
+  return JSON.parse(rawText);
+}
+
+function attachSqlButton(messageElement, idea) {
+  if (!messageElement || !idea || messageElement.querySelector(".message-sql-button")) {
+    return;
+  }
+
+  messageElement.classList.add("with-action");
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "message-sql-button";
+  button.textContent = "Baixar .sql";
+
+  button.addEventListener("click", async () => {
+    if (isLoading) {
+      return;
+    }
+
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = "A gerar...";
+    statusTextEl.textContent = "A gerar ficheiro SQL...";
+
+    try {
+      const data = await requestSqlFile(idea);
+      triggerSqlDownload(data.file_name, data.sql);
+      statusTextEl.textContent = `SQL gerado: ${data.file_name}`;
+    } catch (error) {
+      renderMessage("assistant", `Erro ao gerar SQL: ${error.message}`);
+      statusTextEl.textContent = "Falha ao gerar SQL.";
+    } finally {
+      button.disabled = false;
+      button.textContent = originalLabel;
+      await loadOllamaStatus();
+    }
+  });
+
+  messageElement.appendChild(button);
+}
+
+function stopStreaming() {
+  if (!isLoading || !currentAbortController) {
+    return;
+  }
+
+  stopRequested = true;
+  statusTextEl.textContent = "A interromper resposta...";
+  currentAbortController.abort();
+}
+
 async function sendMessage() {
   if (isLoading) {
     return;
@@ -97,21 +274,27 @@ async function sendMessage() {
   }
 
   const userMessage = { role: "user", content };
+  const shouldOfferSql = isSqlIntent(content);
+
   messages.push(userMessage);
   renderMessage("user", content);
   inputEl.value = "";
+  stopRequested = false;
   setLoading(true);
 
   const assistantBubble = createMessageElement("assistant", "");
   let assistantText = "";
 
   try {
+    currentAbortController = new AbortController();
+
     const response = await fetch("/api/chat/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ messages })
+      body: JSON.stringify({ messages }),
+      signal: currentAbortController.signal
     });
 
     if (!response.ok || !response.body) {
@@ -181,10 +364,30 @@ async function sendMessage() {
     }
 
     messages.push({ role: "assistant", content: assistantText });
+
+    if (shouldOfferSql) {
+      attachSqlButton(assistantBubble, content);
+    }
   } catch (error) {
-    const errorMessage = `Erro: ${error.message}`;
-    updateMessage(assistantBubble, errorMessage);
+    if (error.name === "AbortError" || stopRequested) {
+      assistantText = assistantText.trim();
+
+      if (assistantText) {
+        updateMessage(assistantBubble, `${assistantText}\n\n[Resposta interrompida]`);
+        messages.push({ role: "assistant", content: assistantText });
+      } else {
+        updateMessage(assistantBubble, "[Resposta interrompida]");
+      }
+
+      statusTextEl.textContent = "Resposta interrompida.";
+    } else {
+      const errorMessage = `Erro: ${error.message}`;
+      updateMessage(assistantBubble, errorMessage);
+      statusTextEl.textContent = "Falha ao comunicar com o Ollama.";
+    }
   } finally {
+    currentAbortController = null;
+    stopRequested = false;
     setLoading(false);
     inputEl.focus();
     await loadOllamaStatus();
@@ -203,6 +406,7 @@ inputEl.addEventListener("keydown", async (event) => {
   }
 });
 
+stopButtonEl.addEventListener("click", stopStreaming);
 clearButtonEl.addEventListener("click", resetChat);
 
 promptButtons.forEach((button) => {
