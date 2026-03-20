@@ -4,17 +4,7 @@ from pathlib import Path
 
 import httpx
 
-from config import (
-    OLLAMA_BASE_URL,
-    OLLAMA_CHAT_PATH,
-    OLLAMA_GENERATE_PATH,
-    OLLAMA_MAX_HISTORY_MESSAGES,
-    OLLAMA_MAX_MESSAGE_CHARS,
-    OLLAMA_MODEL,
-    OLLAMA_NUM_PREDICT,
-    OLLAMA_STATUS_TIMEOUT_SECONDS,
-    OLLAMA_TIMEOUT_SECONDS,
-)
+from config import settings
 from prompts.policy import build_scope_classifier_prompt, parse_scope_classifier_response
 from prompts.planner_prompt import build_planner_prompt
 from prompts.sql_prompt import build_sql_schema_prompt
@@ -26,15 +16,15 @@ class OllamaServiceError(Exception):
 
 class OllamaService:
     def __init__(self) -> None:
-        self.base_url = OLLAMA_BASE_URL
-        self.generate_url = f"{OLLAMA_BASE_URL}{OLLAMA_GENERATE_PATH}"
-        self.chat_url = f"{OLLAMA_BASE_URL}{OLLAMA_CHAT_PATH}"
-        self.model = OLLAMA_MODEL
-        self.timeout = OLLAMA_TIMEOUT_SECONDS
-        self.status_timeout = OLLAMA_STATUS_TIMEOUT_SECONDS
-        self.max_history_messages = OLLAMA_MAX_HISTORY_MESSAGES
-        self.max_message_chars = OLLAMA_MAX_MESSAGE_CHARS
-        self.num_predict = OLLAMA_NUM_PREDICT
+        self.base_url = settings.ollama_base_url
+        self.generate_url = f"{settings.ollama_base_url}{settings.ollama_generate_path}"
+        self.chat_url = f"{settings.ollama_base_url}{settings.ollama_chat_path}"
+        self.model = settings.ollama_model
+        self.timeout = settings.ollama_timeout
+        self.status_timeout = settings.ollama_status_timeout
+        self.max_history_messages = settings.max_history_messages
+        self.max_message_chars = settings.max_input_chars
+        self.num_predict = settings.max_output_tokens
 
     async def get_status(self) -> dict[str, str | bool]:
         tags_url = f"{self.base_url}/api/tags"

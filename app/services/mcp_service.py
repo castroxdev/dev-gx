@@ -3,7 +3,7 @@ from typing import Any
 
 import httpx
 
-from config import MCP_SERVER_BASE_URL, MCP_SERVER_ENABLED, MCP_SERVER_TIMEOUT_SECONDS
+from config import settings
 
 
 class McpServiceError(Exception):
@@ -12,9 +12,9 @@ class McpServiceError(Exception):
 
 class McpService:
     def __init__(self) -> None:
-        self.enabled = MCP_SERVER_ENABLED
-        self.base_url = MCP_SERVER_BASE_URL.rstrip("/")
-        self.timeout = MCP_SERVER_TIMEOUT_SECONDS
+        self.enabled = settings.mcp_server_enabled
+        self.base_url = settings.mcp_server_base_url.rstrip("/")
+        self.timeout = settings.mcp_server_timeout
         self.session_id: str | None = None
 
     async def get_status(self) -> dict[str, str | bool | int]:
