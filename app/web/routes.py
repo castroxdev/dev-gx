@@ -1,11 +1,11 @@
-from pathlib import Path
-
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
+from app.config import TEMPLATES_DIR
+
 
 router = APIRouter(include_in_schema=False)
-index_html = Path(__file__).resolve().parent.parent / "templates" / "index.html"
+index_html = TEMPLATES_DIR / "index.html"
 
 
 @router.get("/", response_class=HTMLResponse)

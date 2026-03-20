@@ -117,12 +117,21 @@ uvicorn app.main:app --reload
 
 Open `http://127.0.0.1:8000` in the browser after startup.
 
-## Notes About Runtime Directories
+## Notes
 
-- `app/data/`: local SQLite conversation storage created on demand
-- `app/generated/`: generated SQL and other exported artifacts created on demand
-- `app/ui/`: obsolete local residue and not part of the project
-- `app/venv/` and `app/.venv/`: local virtual environments, not part of the project
+- Ollama must be running locally and the configured model must be available before starting the API.
+- The `.env` file must exist in the project root and should be created from `.env.example`.
+- `app/data/` and `app/generated/` are runtime-local directories created on demand and ignored by Git.
+- Local virtual environments such as `.venv/`, `app/.venv/` or other machine-specific folders are not part of the official project structure.
+
+## Troubleshooting
+
+- Ollama model not available:
+  confirm that Ollama is running and that the model configured in `.env` exists locally.
+- `.env` not found:
+  create `C:\dev-gx\.env` from [`C:\dev-gx\.env.example`](C:/dev-gx/.env.example) and restart the server.
+- Static files or templates do not load:
+  start the app from the project root with `uvicorn app.main:app --reload` so the package layout and centralized paths are resolved correctly.
 
 ## Screenshots
 
