@@ -15,6 +15,7 @@ from config import (
     OLLAMA_STATUS_TIMEOUT_SECONDS,
     OLLAMA_TIMEOUT_SECONDS,
 )
+from prompts.policy import build_scope_classifier_prompt, parse_scope_classifier_response
 from prompts.planner_prompt import build_planner_prompt
 from prompts.sql_prompt import build_sql_schema_prompt
 
@@ -131,6 +132,31 @@ class OllamaService:
             raise OllamaServiceError("O Ollama nao devolveu conteudo para o schema SQL.")
 
         return self._extract_sql(generated_text)
+
+    async def classify_request_scope(self, user_input: str) -> dict[str, str]:
+        prompt = build_scope_classifier_prompt(user_input)
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_predict": 120,
+            },
+        }
+
+        data = await self._post_json(self.generate_url, payload)
+        generated_text = data.get("response", "").strip()
+        parsed = parse_scope_classifier_response(generated_text)
+
+        if parsed is None:
+            # Fail open to avoid blocking valid software requests if classification is malformed.
+            return {
+                "decision": "allow",
+                "category": "software",
+                "reason": "classifier_fallback",
+            }
+
+        return parsed
 
     async def chat(self, messages: list[dict[str, str]]) -> str:
         trimmed_messages = self._trim_messages(messages)

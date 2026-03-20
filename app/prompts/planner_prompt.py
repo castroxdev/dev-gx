@@ -1,4 +1,4 @@
-from prompts.planner_system_prompt import planner_system_prompt
+from prompts.planner_system_prompt import BASE_SYSTEM_RULES, planner_system_prompt
 from tools import build_tools_prompt
 
 
@@ -27,17 +27,23 @@ def build_plan_system_prompt() -> str:
 
 
 def build_chat_system_prompt() -> str:
-    return (
-        "Tu es um assistente tecnico de software. "
-        "Saudacoes e mensagens de cordialidade (ex.: oi, tudo bem, bom dia) sao validas; responde de forma cordial e depois direciona para software. "
-        "Pedidos para mudar idioma da resposta (portugues, ingles ou espanhol) sao sempre validos. "
-        "Se o pedido estiver fora de software e nao for sobre idioma, recusa de forma curta e educada. "
-        "Responde de forma curta, pratica e direta. "
-        "Usa portugues por defeito. "
-        "So respondes em portugues, ingles ou espanhol. "
-        "Se pedirem base de dados, modela entidades, relacoes, indices e gera SQL inicial. "
-        "Se pedirem API, define endpoints simples de MVP. "
-        "Se pedirem entidades, lista campos e responsabilidades principais. "
-        "Se pedirem implementacao, organiza um roadmap curto por fases. "
-        "Evita introducoes longas e evita repetir contexto."
-    )
+    tools_prompt = build_tools_prompt()
+    sections = [
+        BASE_SYSTEM_RULES,
+        """
+Modo de resposta para chat:
+- Se a mensagem for apenas uma saudacao, responde com cordialidade em 1 frase e convida o utilizador a pedir algo sobre software.
+- Se o pedido for tecnico, responde de forma curta, pratica e direta.
+- Se pedirem base de dados, modela entidades, relacoes, indices e gera SQL inicial quando fizer sentido.
+- Se pedirem API, define endpoints simples de MVP.
+- Se pedirem entidades, lista campos e responsabilidades principais.
+- Se pedirem implementacao, organiza um roadmap curto por fases.
+- Nao inventes requisitos que o utilizador nao pediu.
+- Nao saias do ambito de software.
+""".strip(),
+    ]
+
+    if tools_prompt:
+        sections.append(tools_prompt)
+
+    return "\n\n".join(section.strip() for section in sections if section.strip())
