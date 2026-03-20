@@ -1,4 +1,4 @@
-from prompts.planner_system_prompt import BASE_SYSTEM_RULES, planner_system_prompt
+from app.prompts.planner_system_prompt import BASE_SYSTEM_RULES, planner_system_prompt
 
 
 planner_prompt = """
