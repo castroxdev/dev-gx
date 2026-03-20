@@ -1,18 +1,59 @@
-## Dev GX
+# Dev GX
 
-Dev GX é um assistente inteligente desenvolvido em Python com integração do Ollama, que ajuda programadores a transformar ideias em planos técnicos estruturados.
+AI software planning assistant built with Python, FastAPI and Ollama. Dev GX helps turn project ideas into technical outputs such as MVP scope, entities, API structure and initial SQL schema.
 
-A partir de uma descrição simples, o sistema gera automaticamente:
-- entidades do sistema
-- estrutura da base de dados
-- endpoints de API
-- organização do backend e frontend
-- roadmap de desenvolvimento (MVP)
+![Dev GX Home](docs/dev-gx-home.png)
 
-O projeto foca-se em aplicações web do tipo CRUD, garantindo maior precisão e consistência nas respostas.
+## Overview
 
-A execução é feita localmente através de modelos de linguagem (LLMs), permitindo uma solução leve, privada e independente de serviços externos.
+Dev GX is a local AI assistant for software planning. It was built to help transform simple product ideas into more structured technical artifacts that can be used as a starting point for development.
 
-## Objetivo
+With a prompt-based interface, the application can help with:
+- MVP planning
+- entity modeling
+- API and backend suggestions
+- initial SQL schema generation
 
-Reduzir a dificuldade inicial no desenvolvimento de software, ajudando programadores a organizar ideias e iniciar projetos de forma estruturada.
+The project uses a local Ollama model, making it useful for experimentation with private, local-first AI workflows.
+
+## Features
+
+- Local AI-powered software planning
+- MVP scope suggestions from project ideas
+- Entity modeling for applications and systems
+- REST API endpoint suggestions
+- Initial SQL schema generation
+- Chat history persistence with SQLite
+- Simple dark UI for technical prompting
+
+## Screenshots
+
+### Home
+![Dev GX Home](docs/dev-gx-home.png)
+
+### MVP planning
+![Dev GX MVP Planning](docs/dev-gx-mvp-planning.png)
+
+### API design
+![Dev GX API Design](docs/dev-gx-api-design.png)
+
+## Tech Stack
+
+- Python
+- FastAPI
+- Ollama
+- Jinja2
+- HTML / CSS / JavaScript
+- SQLite
+
+## Project Structure
+
+```text
+app/
+├── api/
+├── schemas/
+├── services/
+├── static/
+├── templates/
+├── tools/
+└── main.py
