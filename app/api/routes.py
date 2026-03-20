@@ -3,14 +3,14 @@
 from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
-from prompts.policy import detect_response_language, refusal_message
-from schemas.request import (
+from app.prompts.policy import detect_response_language, refusal_message
+from app.schemas.request import (
     ChatRequest,
     ConversationSyncRequest,
     GeneratePlanRequest,
     GenerateSqlSchemaRequest,
 )
-from schemas.response import (
+from app.schemas.response import (
     ChatResponse,
     ConversationResponse,
     ConversationSummaryResponse,
@@ -19,11 +19,11 @@ from schemas.response import (
     McpHealthResponse,
     OllamaHealthResponse,
 )
-from services.conversation_store import ConversationStore
-from services.mcp_service import McpService, McpServiceError
-from services.ollama_service import OllamaService, OllamaServiceError
-from services.tool_runtime import format_tool_result, parse_tool_call_response
-from tools import build_tools_prompt_from_mcp
+from app.services.conversation_store import ConversationStore
+from app.services.mcp_service import McpService, McpServiceError
+from app.services.ollama_service import OllamaService, OllamaServiceError
+from app.services.tool_runtime import format_tool_result, parse_tool_call_response
+from app.tools import build_tools_prompt_from_mcp
 
 
 router = APIRouter(prefix="/api", tags=["planner"])
