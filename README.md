@@ -1,6 +1,6 @@
 # Dev GX
 
-Dev GX is a local AI software planning assistant built with FastAPI and Ollama. It helps turn product ideas into practical technical outputs such as MVP plans, entity definitions, API suggestions, and starter SQL schemas.
+Dev GX is a local AI software planning assistant built with FastAPI and Ollama. It helps transform product ideas into practical technical outputs such as MVP plans, entity definitions, API suggestions, and starter SQL schemas.
 
 ![Dev GX Home](docs/dev-gx-home.png)
 
@@ -11,7 +11,7 @@ Dev GX is a local AI software planning assistant built with FastAPI and Ollama. 
 - Uvicorn
 - Ollama
 - Pydantic
-- HTML, CSS and JavaScript
+- HTML, CSS, and JavaScript
 - SQLite
 
 ## Official Project Structure
@@ -38,14 +38,14 @@ dev-gx/
 `-- requirements.txt
 ```
 
-Runtime folders such as `app/data/` and `app/generated/` may be created automatically during execution. They are local state, are ignored by Git, and are intentionally kept outside the documented source structure.
+Runtime folders such as `app/data/` and `app/generated/` may be created automatically during execution. These directories store local runtime state, are ignored by Git, and are intentionally kept outside the documented source structure.
 
-Local virtual environments such as `.venv/`, `app/.venv/` or `app/venv/` are not part of the official structure and should not be documented as source code.
+Local virtual environments such as `.venv/`, `app/.venv/`, or `app/venv/` are not part of the official project structure and should not be documented as source code.
 
 ## Main Features
 
 - Web interface for local software planning workflows
-- Chat endpoint backed by a local Ollama model
+- Chat endpoint powered by a local Ollama model
 - MVP planning generation
 - Entity and API design guidance
 - SQL schema generation and file export
@@ -63,14 +63,14 @@ cd dev-gx
 
 ### 2. Create a virtual environment
 
-Windows:
+**Windows**
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
 ```
 
-Linux / macOS:
+**Linux / macOS**
 
 ```bash
 python3 -m venv .venv
@@ -87,21 +87,21 @@ pip install -r requirements.txt
 
 Create a local `.env` file based on `.env.example`.
 
-Windows PowerShell:
+**Windows PowerShell**
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Linux / macOS:
+**Linux / macOS**
 
 ```bash
 cp .env.example .env
 ```
 
-Main variables:
+### Main environment variables
 
-- `OLLAMA_BASE_URL`: local Ollama server URL
+- `OLLAMA_BASE_URL`: URL of the local Ollama server
 - `OLLAMA_MODEL`: model used by the planner
 - `OLLAMA_TIMEOUT`: request timeout for generation
 - `MCP_SERVER_ENABLED`: enables or disables MCP integration
@@ -109,29 +109,37 @@ Main variables:
 
 ## Official Run Command
 
-Start Ollama first and make sure the configured model is available. Run the application from the project root:
+Start Ollama first and make sure the configured model is available. Then run the application from the project root:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000` in the browser after startup.
+After startup, open `http://127.0.0.1:8000` in your browser.
 
 ## Notes
 
-- Ollama must be running locally and the configured model must be available before starting the API.
+- Ollama must be running locally, and the configured model must be available before starting the application.
 - The `.env` file must exist in the project root and should be created from `.env.example`.
 - `app/data/` and `app/generated/` are runtime-local directories created on demand and ignored by Git.
-- Local virtual environments such as `.venv/`, `app/.venv/` or other machine-specific folders are not part of the official project structure.
+- Local virtual environments such as `.venv/`, `app/.venv/`, and other machine-specific folders are not part of the official project structure.
 
 ## Troubleshooting
 
-- Ollama model not available:
-  confirm that Ollama is running and that the model configured in `.env` exists locally.
-- `.env` not found:
-  create `C:\dev-gx\.env` from [`C:\dev-gx\.env.example`](C:/dev-gx/.env.example) and restart the server.
-- Static files or templates do not load:
-  start the app from the project root with `uvicorn app.main:app --reload` so the package layout and centralized paths are resolved correctly.
+**Ollama model not available**  
+Make sure Ollama is running and that the model defined in `.env` is installed locally.
+
+**`.env` file not found**  
+Create a `.env` file in the project root based on `.env.example`, then restart the server.
+
+**Static files or templates do not load**  
+Make sure you are starting the app from the project root with:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+This ensures the package layout and centralized paths are resolved correctly.
 
 ## Screenshots
 
