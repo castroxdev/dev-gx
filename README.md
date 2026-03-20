@@ -1,85 +1,58 @@
 # Dev GX
 
-AI software planning assistant built with Python, FastAPI and Ollama. Dev GX helps turn project ideas into technical outputs such as MVP scope, entities, API structure and initial SQL schema.
+Dev GX is a local AI software planning assistant built with FastAPI and Ollama. It helps turn product ideas into practical technical outputs such as MVP plans, entity definitions, API suggestions, and starter SQL schemas.
 
 ![Dev GX Home](docs/dev-gx-home.png)
 
-## Overview
-
-Dev GX is a local AI assistant for software planning. It was built to help transform simple product ideas into more structured technical artifacts that can be used as a starting point for development.
-
-With a prompt-based interface, the application can help with:
-- MVP planning
-- entity modeling
-- API and backend suggestions
-- initial SQL schema generation
-
-The project uses a local Ollama model, making it useful for experimentation with local-first AI workflows.
-
-## Features
-
-- Local AI-powered software planning
-- MVP scope suggestions from project ideas
-- Entity modeling for applications and systems
-- REST API endpoint suggestions
-- Initial SQL schema generation
-- Chat history persistence with SQLite
-- Simple dark UI for technical prompting
-
-## Screenshots
-
-### Home
-![Dev GX Home](docs/dev-gx-home.png)
-
-### MVP Planning
-![Dev GX MVP Planning](docs/dev-gx-mvp-planning.png)
-
-### API Design
-![Dev GX API Design](docs/dev-gx-api-design.png)
-
-## Tech Stack
+## Stack
 
 - Python
 - FastAPI
+- Uvicorn
 - Ollama
-- Jinja2
-- HTML
-- CSS
-- JavaScript
+- Pydantic
+- HTML, CSS and JavaScript
 - SQLite
 
-## Project Structure
+## Official Project Structure
 
 ```text
-app/
-├── api/
-├── schemas/
-├── services/
-├── static/
-├── templates/
-├── tools/
-└── main.py
+dev-gx/
+|-- app/
+|   |-- api/
+|   |-- prompts/
+|   |-- schemas/
+|   |-- services/
+|   |-- static/
+|   |-- templates/
+|   |-- tools/
+|   |-- web/
+|   |-- __init__.py
+|   |-- config.py
+|   `-- main.py
+|-- docs/
+|-- .env.example
+|-- .gitignore
+|-- LICENSE
+|-- README.md
+`-- requirements.txt
 ```
 
-## How It Works
+Runtime folders such as `app/data/` and `app/generated/` may be created automatically during execution. They are local state, are ignored by Git, and are intentionally kept outside the documented source structure.
 
-The user submits a software idea or technical request in the chat interface.
+Local virtual environments such as `.venv/`, `app/.venv/` or `app/venv/` are not part of the official structure and should not be documented as source code.
 
-Dev GX then uses a local Ollama model to generate structured technical output, such as:
-- a simple MVP plan
-- core entities
-- suggested API endpoints
-- a starting SQL schema
+## Main Features
 
-The generated response is displayed in the interface and conversations can be stored locally.
+- Web interface for local software planning workflows
+- Chat endpoint backed by a local Ollama model
+- MVP planning generation
+- Entity and API design guidance
+- SQL schema generation and file export
+- Conversation persistence with SQLite
+- Optional MCP server integration for external tools
 
-## Example Prompts
-
-- Create a simple MVP plan for a barbershop application with appointments, clients, barbers and haircut history.
-- Suggest a simple REST API for a barbershop application with clients, barbers, haircuts and appointments.
-- Create a simple SQL database for a task management system with users, projects, tasks and comments.
-
-## Running Locally
+## Installation
 
 ### 1. Clone the repository
 
@@ -88,15 +61,17 @@ git clone https://github.com/castroxdev/dev-gx.git
 cd dev-gx
 ```
 
-### 2. Create and activate a virtual environment
+### 2. Create a virtual environment
 
-**Windows**
-```bash
+Windows:
+
+```powershell
 python -m venv .venv
 .venv\Scripts\activate
 ```
 
-**Linux / macOS**
+Linux / macOS:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -108,59 +83,60 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Start Ollama
+## Environment Configuration
 
-Make sure Ollama is installed and running locally, and that the configured model is available.
+Create a local `.env` file based on `.env.example`.
 
-Example:
-```bash
-ollama run qwen2.5-coder:7b
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
 ```
 
-### 5. Run the application
+Linux / macOS:
+
+```bash
+cp .env.example .env
+```
+
+Main variables:
+
+- `OLLAMA_BASE_URL`: local Ollama server URL
+- `OLLAMA_MODEL`: model used by the planner
+- `OLLAMA_TIMEOUT`: request timeout for generation
+- `MCP_SERVER_ENABLED`: enables or disables MCP integration
+- `MCP_SERVER_BASE_URL`: MCP server endpoint
+
+## Official Run Command
+
+Start Ollama first and make sure the configured model is available. Run the application from the project root:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Then open the local address shown in the terminal.
+Open `http://127.0.0.1:8000` in the browser after startup.
 
-## Configuration
+## Notes About Runtime Directories
 
-The project can be configured with environment variables for items such as:
-- Ollama base URL
-- model name
-- request timeout
-- input and output limits
-- app environment and debug mode
+- `app/data/`: local SQLite conversation storage created on demand
+- `app/generated/`: generated SQL and other exported artifacts created on demand
+- `app/ui/`: obsolete local residue and not part of the project
+- `app/venv/` and `app/.venv/`: local virtual environments, not part of the project
 
-A `.env.example` file is recommended for local setup.
+## Screenshots
 
-## Current Status
+### Home
 
-Dev GX is still in development, but the core idea and main workflow are already functional.
+![Dev GX Home](docs/dev-gx-home.png)
 
-The current focus is on:
-- improving configuration and project setup
-- refining prompt flows
-- polishing the UI
-- making outputs more consistent and structured
+### MVP Planning
 
-## Future Improvements
+![Dev GX MVP Planning](docs/dev-gx-mvp-planning.png)
 
-- better response formatting
-- export options for generated artifacts
-- more specialized prompt modes
-- improved validation of generated SQL and API suggestions
-- cleaner configuration with environment variables
-- stronger documentation and setup flow
+### API Design
 
-## Author
-
-**Lucas de Castro Silva**  
-GPSI student and Gen AI intern at WIT Software.
-
-GitHub: [castroxdev](https://github.com/castroxdev)
+![Dev GX API Design](docs/dev-gx-api-design.png)
 
 ## License
 
