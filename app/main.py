@@ -1,15 +1,9 @@
-from pathlib import Path
-
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
-from api.routes import router as api_router
-from web.routes import router as web_router
-
-
-BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
+from app.api.routes import router as api_router
+from app.config import STATIC_DIR, settings
+from app.web.routes import router as web_router
 
 
 def create_app() -> FastAPI:
