@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dev GX Planner</title>
+  <title>Dev GX</title>
   <link rel="icon" type="image/png" href="/static/icone.png">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/app.js" defer></script>
@@ -17,8 +17,8 @@
         <div class="brand">
           <img class="brand-icon" src="/static/icone.png" alt="Dev GX icon">
           <div class="brand-copy">
-            <h1>Dev GX Planner</h1>
-            <p class="hero-subtitle">Assistente técnico local para planear apps, bases de dados e MVPs.</p>
+            <h1>Dev GX</h1>
+            <p class="hero-subtitle">Assistente técnico local para planear software, modelar bases de dados e estruturar MVPs.</p>
           </div>
         </div>
 
@@ -53,10 +53,10 @@
         <div class="panel">
           <h2>Capacidades</h2>
           <ul class="feature-list">
-            <li>Planeamento técnico de MVP</li>
+            <li>Planeamento de MVP</li>
             <li>Modelação de entidades</li>
-            <li>Esquema SQL inicial</li>
-            <li>API e backend sugeridos</li>
+            <li>Geração de SQL inicial</li>
+            <li>Sugestão de API/backend</li>
           </ul>
         </div>
 
@@ -98,14 +98,14 @@
 
           <textarea
             id="messageInput"
-            placeholder="Ex.: cria a base de dados SQL para um sistema de tarefas com utilizadores, projetos, tarefas e comentários."
+            placeholder="Ex.: cria uma base de dados SQL para uma barbearia com clientes, barbeiros, cortes e agendamentos."
             required
           ></textarea>
 
           <div class="composer-footer">
             <span class="helper-text" id="statusText">Pronto.</span>
             <div class="composer-actions">
-              <button class="stop-button" id="stopButton" type="button" disabled>Stop</button>
+              <button class="stop-button" id="stopButton" type="button" disabled>Parar</button>
               <button class="primary-button" id="sendButton" type="submit">Enviar</button>
             </div>
           </div>

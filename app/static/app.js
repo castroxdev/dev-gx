@@ -175,7 +175,7 @@ async function loadOllamaStatus() {
       `${data.detail} Modelo configurado: ${data.model}. Endpoint: ${data.base_url}.`
     );
   } catch (error) {
-    setOllamaStatus("offline", `Nao foi possivel verificar o Ollama: ${error.message}`);
+    setOllamaStatus("offline", `Não foi possível verificar o Ollama: ${error.message}`);
   }
 }
 
@@ -185,7 +185,7 @@ function renderConversationMessages() {
   if (!messages.length) {
     renderMessage(
       "assistant",
-      "Ola! Posso planear o teu produto, modelar entidades e gerar um esquema SQL inicial. Diz-me o que queres construir."
+      "Olá! Posso planear o teu produto, modelar entidades e gerar um esquema SQL inicial. Diz-me o que queres construir."
     );
     return;
   }
@@ -207,7 +207,7 @@ function renderConversationList() {
   if (!conversationSummaries.length) {
     const emptyState = document.createElement("div");
     emptyState.className = "conversation-empty";
-    emptyState.textContent = "Ainda nao tens conversas guardadas.";
+    emptyState.textContent = "Ainda não tens conversas guardadas.";
     conversationListEl.appendChild(emptyState);
     return;
   }
@@ -293,7 +293,7 @@ async function fetchJson(url, options = {}) {
     try {
       data = JSON.parse(rawText);
     } catch (error) {
-      throw new Error(`Resposta invalida de ${url}: ${rawText}`);
+      throw new Error(`Resposta inválida de ${url}: ${rawText}`);
     }
   }
 
@@ -599,7 +599,7 @@ async function sendMessage() {
     assistantText = assistantText.trim();
 
     if (!assistantText) {
-      throw new Error("O streaming terminou sem devolver conteudo.");
+      throw new Error("O streaming terminou sem devolver conteúdo.");
     }
 
     messages.push({ role: "assistant", content: assistantText });
@@ -661,7 +661,7 @@ promptButtons.forEach((button) => {
 renderConversationMessages();
 renderConversationList();
 ensureConversationReady().catch((error) => {
-  statusTextEl.textContent = `Falha ao carregar memoria: ${error.message}`;
+  statusTextEl.textContent = `Falha ao carregar memória: ${error.message}`;
 });
 loadOllamaStatus();
 
