@@ -1,13 +1,12 @@
 ﻿import json
 import re
-from pathlib import Path
 
 import httpx
 
-from config import settings
-from prompts.policy import build_scope_classifier_prompt, parse_scope_classifier_response
-from prompts.planner_prompt import build_planner_prompt
-from prompts.sql_prompt import build_sql_schema_prompt
+from app.config import GENERATED_DIR, settings
+from app.prompts.policy import build_scope_classifier_prompt, parse_scope_classifier_response
+from app.prompts.planner_prompt import build_planner_prompt
+from app.prompts.sql_prompt import build_sql_schema_prompt
 
 
 class OllamaServiceError(Exception):
@@ -218,7 +217,7 @@ class OllamaService:
             ) from exc
 
     def save_sql_schema(self, sql: str, file_name: str | None = None) -> tuple[str, str]:
-        target_dir = Path(__file__).resolve().parent.parent / "generated" / "sql"
+        target_dir = GENERATED_DIR / "sql"
         target_dir.mkdir(parents=True, exist_ok=True)
 
         safe_name = self._sanitize_file_name(file_name)
@@ -293,11 +292,11 @@ class OllamaService:
             ) from exc
 
     def build_chat_system_message(self, tools_prompt: str = "") -> str:
-        from prompts.planner_prompt import build_chat_system_prompt
+        from app.prompts.planner_prompt import build_chat_system_prompt
 
         return build_chat_system_prompt(tools_prompt)
 
     def build_plan_system_message(self, tools_prompt: str = "") -> str:
-        from prompts.planner_prompt import build_plan_system_prompt
+        from app.prompts.planner_prompt import build_plan_system_prompt
 
         return build_plan_system_prompt(tools_prompt)

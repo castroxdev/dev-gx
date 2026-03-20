@@ -6,13 +6,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.config import DATA_DIR
+
 
 class ConversationStore:
     def __init__(self, db_path: Path | None = None) -> None:
-        base_dir = Path(__file__).resolve().parent.parent
-        data_dir = base_dir / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        self.db_path = db_path or data_dir / "chat_memory.db"
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self.db_path = db_path or DATA_DIR / "chat_memory.db"
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
