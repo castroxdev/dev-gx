@@ -39,6 +39,13 @@ class OllamaHealthResponse(BaseModel):
     model_available: bool = Field(..., description="Indica se o modelo configurado existe no Ollama.")
 
 
+class McpHealthResponse(BaseModel):
+    status: str = Field(..., description="Estado atual do servidor MCP.")
+    base_url: str = Field(..., description="URL base usada para comunicar com o servidor MCP.")
+    detail: str = Field(..., description="Detalhe textual do estado.")
+    tools_available: int = Field(..., description="Numero de tools descobertas no servidor MCP.")
+
+
 class GenerateSqlSchemaResponse(BaseModel):
     file_path: str = Field(..., description="Caminho absoluto do ficheiro SQL gerado.")
     file_name: str = Field(..., description="Nome do ficheiro SQL gerado.")

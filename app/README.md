@@ -1,20 +1,22 @@
 ﻿# Dev GX
 
-Planner tecnico com FastAPI, interface web mais completa e integracao local com Ollama.
+Planner tecnico com FastAPI, interface web mais completa, integracao local com Ollama e descoberta de tools via MCP.
 
 O projeto usa uma arquitetura simples por camadas:
 - `web/` para a interface
 - `api/` para os endpoints JSON
 - `services/` para integracao com o Ollama
-- `prompts/` e `tools/` para orientar o comportamento do planner
+- `prompts/` para orientar o comportamento do planner
+- `services/mcp_service.py` para descobrir tools num servidor MCP real
 
 ## Funcionalidades
 
 - Chat tecnico via browser
 - Planeamento de MVP
-- Tools internas para base de dados, entidades, API e roadmap
+- Descoberta de tools via servidor MCP
 - Geracao e gravacao automatica de schema SQL em ficheiro `.sql`
 - Healthcheck da aplicacao e do Ollama
+- Healthcheck do servidor MCP
 - Interface web com prompts rapidos e estado do modelo
 
 ## Estrutura
@@ -31,6 +33,7 @@ app/
 |   |-- request.py
 |   `-- response.py
 |-- services/
+|   |-- mcp_service.py
 |   `-- ollama_service.py
 |-- static/
 |   |-- app.css
@@ -58,6 +61,7 @@ app/
 Garante primeiro que:
 - o Ollama esta ativo
 - o modelo `qwen2.5-coder:7b` existe localmente
+- o servidor MCP esta ativo em `http://127.0.0.1:8765` ou ajusta `MCP_SERVER_BASE_URL` em `config.py`
 
 Depois:
 
@@ -73,6 +77,7 @@ Interface web:
 - `GET /`
 - `GET /health`
 - `GET /api/health/ollama`
+- `GET /api/health/mcp`
 - `POST /api/chat`
 - `POST /api/chat/stream`
 - `POST /api/sql-schema`

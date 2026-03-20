@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
 from prompts.policy import detect_response_language, refusal_message
-from prompts.planner_prompt import build_chat_system_prompt
 from schemas.request import (
     ChatRequest,
     ConversationSyncRequest,
@@ -17,15 +16,106 @@ from schemas.response import (
     ConversationSummaryResponse,
     GeneratePlanResponse,
     GenerateSqlSchemaResponse,
+    McpHealthResponse,
     OllamaHealthResponse,
 )
 from services.conversation_store import ConversationStore
+from services.mcp_service import McpService, McpServiceError
 from services.ollama_service import OllamaService, OllamaServiceError
+from services.tool_runtime import format_tool_result, parse_tool_call_response
+from tools import build_tools_prompt_from_mcp
 
 
 router = APIRouter(prefix="/api", tags=["planner"])
 ollama_service = OllamaService()
 conversation_store = ConversationStore()
+mcp_service = McpService()
+
+
+async def load_mcp_tools_prompt() -> str:
+    try:
+        mcp_tools = await mcp_service.list_tools()
+    except McpServiceError:
+        return ""
+
+    return build_tools_prompt_from_mcp(mcp_tools)
+
+
+async def execute_chat_with_mcp_tools(messages: list[dict[str, str]]) -> str:
+    mcp_tools = []
+    try:
+        mcp_tools = await mcp_service.list_tools()
+    except McpServiceError:
+        mcp_tools = []
+
+    tools_prompt = build_tools_prompt_from_mcp(mcp_tools)
+    allowed_tools = {str(tool.get("name", "")).strip() for tool in mcp_tools if tool.get("name")}
+
+    conversation = [{"role": "system", "content": ollama_service.build_chat_system_message(tools_prompt)}]
+    conversation.extend(messages)
+
+    max_tool_rounds = 4
+    for _ in range(max_tool_rounds):
+        reply = await ollama_service.chat(conversation)
+        tool_call = parse_tool_call_response(reply, allowed_tools)
+
+        if tool_call is None:
+            return reply
+
+        conversation.append({"role": "assistant", "content": reply})
+
+        try:
+            tool_result = await mcp_service.call_tool(tool_call["tool"], tool_call["arguments"])
+            tool_result_message = format_tool_result(tool_call["tool"], tool_result)
+        except McpServiceError as exc:
+            tool_result_message = format_tool_result(
+                tool_call["tool"],
+                {"error": str(exc)},
+            )
+
+        conversation.append({"role": "system", "content": tool_result_message})
+
+    return "Nao foi possivel concluir o pedido com as tools disponiveis dentro do limite de iteracoes."
+
+
+async def execute_plan_with_mcp_tools(idea: str) -> str:
+    tools_prompt = await load_mcp_tools_prompt()
+    allowed_tools: set[str] = set()
+    try:
+        mcp_tools = await mcp_service.list_tools()
+        allowed_tools = {str(tool.get("name", "")).strip() for tool in mcp_tools if tool.get("name")}
+    except McpServiceError:
+        allowed_tools = set()
+
+    prompt = await ollama_service.generate_plan(idea, tools_prompt)
+    tool_call = parse_tool_call_response(prompt, allowed_tools)
+    if tool_call is None:
+        return prompt
+
+    conversation = [
+        {"role": "system", "content": ollama_service.build_plan_system_message(tools_prompt)},
+        {"role": "user", "content": idea},
+        {"role": "assistant", "content": prompt},
+    ]
+
+    max_tool_rounds = 4
+    for _ in range(max_tool_rounds):
+        latest_assistant = conversation[-1]["content"]
+        tool_call = parse_tool_call_response(latest_assistant, allowed_tools)
+        if tool_call is None:
+            return latest_assistant
+
+        try:
+            tool_result = await mcp_service.call_tool(tool_call["tool"], tool_call["arguments"])
+            tool_result_message = format_tool_result(tool_call["tool"], tool_result)
+        except McpServiceError as exc:
+            tool_result_message = format_tool_result(tool_call["tool"], {"error": str(exc)})
+
+        conversation.append({"role": "system", "content": tool_result_message})
+        next_reply = await ollama_service.chat(conversation)
+        conversation.append({"role": "assistant", "content": next_reply})
+
+    return conversation[-1]["content"]
 
 
 @router.get(
@@ -36,6 +126,16 @@ conversation_store = ConversationStore()
 async def ollama_healthcheck() -> OllamaHealthResponse:
     status_payload = await ollama_service.get_status()
     return OllamaHealthResponse(**status_payload)
+
+
+@router.get(
+    "/health/mcp",
+    response_model=McpHealthResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def mcp_healthcheck() -> McpHealthResponse:
+    status_payload = await mcp_service.get_status()
+    return McpHealthResponse(**status_payload)
 
 
 @router.get(
@@ -122,7 +222,7 @@ async def generate_plan(payload: GeneratePlanRequest) -> GeneratePlanResponse:
         )
 
     try:
-        plan = await ollama_service.generate_plan(payload.idea)
+        plan = await execute_plan_with_mcp_tools(payload.idea)
     except OllamaServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -175,11 +275,10 @@ async def chat(payload: ChatRequest) -> ChatResponse:
         language = detect_response_language(last_user_message, scope["language"])
         return ChatResponse(reply=refusal_message(language))
 
-    conversation = [{"role": "system", "content": build_chat_system_prompt()}]
-    conversation.extend(message.model_dump() for message in payload.messages)
-
     try:
-        reply = await ollama_service.chat(conversation)
+        reply = await execute_chat_with_mcp_tools(
+            [message.model_dump() for message in payload.messages]
+        )
     except OllamaServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -213,14 +312,13 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
             },
         )
 
-    conversation = [{"role": "system", "content": build_chat_system_prompt()}]
-    conversation.extend(message.model_dump() for message in payload.messages)
-
     async def stream_generator():
         try:
-            async for chunk in ollama_service.chat_stream(conversation):
-                escaped_chunk = chunk.replace("\\", "\\\\").replace("\n", "\\n")
-                yield f"data: {escaped_chunk}\n\n"
+            reply = await execute_chat_with_mcp_tools(
+                [message.model_dump() for message in payload.messages]
+            )
+            escaped_chunk = reply.replace("\\", "\\\\").replace("\n", "\\n")
+            yield f"data: {escaped_chunk}\n\n"
         except OllamaServiceError as exc:
             escaped_error = str(exc).replace("\\", "\\\\").replace("\n", "\\n")
             yield f"event: error\ndata: {escaped_error}\n\n"

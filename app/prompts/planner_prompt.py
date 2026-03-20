@@ -1,5 +1,4 @@
 from prompts.planner_system_prompt import BASE_SYSTEM_RULES, planner_system_prompt
-from tools import build_tools_prompt
 
 
 planner_prompt = """
@@ -10,24 +9,21 @@ Ideia do utilizador:
 """.strip()
 
 
-def build_planner_prompt(idea: str) -> str:
+def build_planner_prompt(idea: str, tools_prompt: str = "") -> str:
     return planner_prompt.format(
-        system_prompt=build_plan_system_prompt(),
+        system_prompt=build_plan_system_prompt(tools_prompt),
         idea=idea.strip(),
     )
 
 
-def build_plan_system_prompt() -> str:
-    tools_prompt = build_tools_prompt()
-
+def build_plan_system_prompt(tools_prompt: str = "") -> str:
     if not tools_prompt:
         return planner_system_prompt
 
     return f"{planner_system_prompt}\n\n{tools_prompt}".strip()
 
 
-def build_chat_system_prompt() -> str:
-    tools_prompt = build_tools_prompt()
+def build_chat_system_prompt(tools_prompt: str = "") -> str:
     sections = [
         BASE_SYSTEM_RULES,
         """

@@ -95,8 +95,8 @@ class OllamaService:
             "model_available": True,
         }
 
-    async def generate_plan(self, idea: str) -> str:
-        prompt = build_planner_prompt(idea)
+    async def generate_plan(self, idea: str, tools_prompt: str = "") -> str:
+        prompt = build_planner_prompt(idea, tools_prompt)
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -301,3 +301,13 @@ class OllamaService:
             raise OllamaServiceError(
                 "O Ollama respondeu, mas nao devolveu JSON valido."
             ) from exc
+
+    def build_chat_system_message(self, tools_prompt: str = "") -> str:
+        from prompts.planner_prompt import build_chat_system_prompt
+
+        return build_chat_system_prompt(tools_prompt)
+
+    def build_plan_system_message(self, tools_prompt: str = "") -> str:
+        from prompts.planner_prompt import build_plan_system_prompt
+
+        return build_plan_system_prompt(tools_prompt)
