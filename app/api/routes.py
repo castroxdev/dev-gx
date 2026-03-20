@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
-from prompts.policy import refusal_message
+from prompts.policy import detect_response_language, refusal_message
 from prompts.planner_prompt import build_chat_system_prompt
 from schemas.request import (
     ChatRequest,
@@ -117,7 +117,9 @@ async def delete_conversation(conversation_id: str) -> Response:
 async def generate_plan(payload: GeneratePlanRequest) -> GeneratePlanResponse:
     scope = await ollama_service.classify_request_scope(payload.idea)
     if scope["decision"] == "refuse":
-        return GeneratePlanResponse(plan=refusal_message())
+        return GeneratePlanResponse(
+            plan=refusal_message(detect_response_language(payload.idea, scope["language"]))
+        )
 
     try:
         plan = await ollama_service.generate_plan(payload.idea)
@@ -138,10 +140,11 @@ async def generate_plan(payload: GeneratePlanRequest) -> GeneratePlanResponse:
 async def generate_sql_schema(payload: GenerateSqlSchemaRequest) -> GenerateSqlSchemaResponse:
     scope = await ollama_service.classify_request_scope(payload.idea)
     if scope["decision"] == "refuse":
+        language = detect_response_language(payload.idea, scope["language"])
         return GenerateSqlSchemaResponse(
             file_path="",
             file_name="",
-            sql=refusal_message(),
+            sql=refusal_message(language),
         )
 
     try:
@@ -169,7 +172,8 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     last_user_message = payload.messages[-1].content
     scope = await ollama_service.classify_request_scope(last_user_message)
     if scope["decision"] == "refuse":
-        return ChatResponse(reply=refusal_message())
+        language = detect_response_language(last_user_message, scope["language"])
+        return ChatResponse(reply=refusal_message(language))
 
     conversation = [{"role": "system", "content": build_chat_system_prompt()}]
     conversation.extend(message.model_dump() for message in payload.messages)
@@ -193,8 +197,9 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
     last_user_message = payload.messages[-1].content
     scope = await ollama_service.classify_request_scope(last_user_message)
     if scope["decision"] == "refuse":
+        language = detect_response_language(last_user_message, scope["language"])
         async def refusal_stream():
-            escaped_chunk = refusal_message().replace("\\", "\\\\").replace("\n", "\\n")
+            escaped_chunk = refusal_message(language).replace("\\", "\\\\").replace("\n", "\\n")
             yield f"data: {escaped_chunk}\n\n"
             yield "event: done\ndata: [DONE]\n\n"
 

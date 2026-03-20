@@ -153,6 +153,7 @@ class OllamaService:
             return {
                 "decision": "allow",
                 "category": "software",
+                "language": "pt",
                 "reason": "classifier_fallback",
             }
 
