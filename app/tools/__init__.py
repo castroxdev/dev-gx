@@ -1,10 +1,10 @@
 import json
 
-from tools.api_design import api_design_tool
-from tools.base import PlannerTool
-from tools.database import database_tool
-from tools.entities import entities_tool
-from tools.roadmap import roadmap_tool
+from app.tools.api_design import api_design_tool
+from app.tools.base import PlannerTool
+from app.tools.database import database_tool
+from app.tools.entities import entities_tool
+from app.tools.roadmap import roadmap_tool
 
 
 AVAILABLE_TOOLS: tuple[PlannerTool, ...] = (

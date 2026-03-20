@@ -129,12 +129,14 @@ celerybeat.pid
 
 # Environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+app/.venv/
+app/venv/
 
 # Spyder project settings
 .spyderproject
@@ -187,6 +189,7 @@ cython_debug/
 output/
 outputs/
 generated/
+data/
 
 # Node (if frontend added)
 node_modules/
@@ -195,3 +198,8 @@ build/
 
 # Extra env files
 *.env
+
+# Local application state
+app/generated/
+app/data/
+app/ui/
