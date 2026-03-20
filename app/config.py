@@ -34,10 +34,12 @@ class Settings(BaseSettings):
     max_history_messages: int = Field(default=6, alias="MAX_HISTORY_MESSAGES")
     max_input_chars: int = Field(default=1800, alias="MAX_INPUT_CHARS")
     max_output_tokens: int = Field(default=700, alias="MAX_OUTPUT_TOKENS")
+    max_tool_rounds: int = Field(default=2, alias="MAX_TOOL_ROUNDS")
 
     mcp_server_enabled: bool = Field(default=True, alias="MCP_SERVER_ENABLED")
     mcp_server_base_url: str = Field(default="http://127.0.0.1:8765", alias="MCP_SERVER_BASE_URL")
     mcp_server_timeout: float = Field(default=15.0, alias="MCP_SERVER_TIMEOUT")
+    mcp_tools_cache_ttl: float = Field(default=10.0, alias="MCP_TOOLS_CACHE_TTL")
 
 
 @lru_cache

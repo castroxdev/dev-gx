@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
 from app.prompts.policy import detect_response_language, refusal_message
+from app.config import settings
 from app.schemas.request import (
     ChatRequest,
     ConversationSyncRequest,
@@ -32,30 +33,25 @@ conversation_store = ConversationStore()
 mcp_service = McpService()
 
 
-async def load_mcp_tools_prompt() -> str:
+async def load_mcp_tools() -> list[dict]:
     try:
-        mcp_tools = await mcp_service.list_tools()
+        return await mcp_service.list_tools()
     except McpServiceError:
-        return ""
-
-    return build_tools_prompt_from_mcp(mcp_tools)
+        return []
 
 
-async def execute_chat_with_mcp_tools(messages: list[dict[str, str]]) -> str:
-    mcp_tools = []
-    try:
-        mcp_tools = await mcp_service.list_tools()
-    except McpServiceError:
-        mcp_tools = []
-
+async def execute_chat_with_mcp_tools(
+    messages: list[dict[str, str]],
+    mcp_tools: list[dict] | None = None,
+) -> str:
+    mcp_tools = mcp_tools or await load_mcp_tools()
     tools_prompt = build_tools_prompt_from_mcp(mcp_tools)
     allowed_tools = {str(tool.get("name", "")).strip() for tool in mcp_tools if tool.get("name")}
 
     conversation = [{"role": "system", "content": ollama_service.build_chat_system_message(tools_prompt)}]
     conversation.extend(messages)
 
-    max_tool_rounds = 4
-    for _ in range(max_tool_rounds):
+    for _ in range(settings.max_tool_rounds):
         reply = await ollama_service.chat(conversation)
         tool_call = parse_tool_call_response(reply, allowed_tools)
 
@@ -79,13 +75,9 @@ async def execute_chat_with_mcp_tools(messages: list[dict[str, str]]) -> str:
 
 
 async def execute_plan_with_mcp_tools(idea: str) -> str:
-    tools_prompt = await load_mcp_tools_prompt()
-    allowed_tools: set[str] = set()
-    try:
-        mcp_tools = await mcp_service.list_tools()
-        allowed_tools = {str(tool.get("name", "")).strip() for tool in mcp_tools if tool.get("name")}
-    except McpServiceError:
-        allowed_tools = set()
+    mcp_tools = await load_mcp_tools()
+    tools_prompt = build_tools_prompt_from_mcp(mcp_tools)
+    allowed_tools = {str(tool.get("name", "")).strip() for tool in mcp_tools if tool.get("name")}
 
     prompt = await ollama_service.generate_plan(idea, tools_prompt)
     tool_call = parse_tool_call_response(prompt, allowed_tools)
@@ -98,8 +90,7 @@ async def execute_plan_with_mcp_tools(idea: str) -> str:
         {"role": "assistant", "content": prompt},
     ]
 
-    max_tool_rounds = 4
-    for _ in range(max_tool_rounds):
+    for _ in range(settings.max_tool_rounds):
         latest_assistant = conversation[-1]["content"]
         tool_call = parse_tool_call_response(latest_assistant, allowed_tools)
         if tool_call is None:
@@ -314,11 +305,21 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
 
     async def stream_generator():
         try:
-            reply = await execute_chat_with_mcp_tools(
-                [message.model_dump() for message in payload.messages]
-            )
-            escaped_chunk = reply.replace("\\", "\\\\").replace("\n", "\\n")
-            yield f"data: {escaped_chunk}\n\n"
+            raw_messages = [message.model_dump() for message in payload.messages]
+            mcp_tools = await load_mcp_tools()
+
+            if mcp_tools:
+                reply = await execute_chat_with_mcp_tools(raw_messages, mcp_tools=mcp_tools)
+                escaped_chunk = reply.replace("\\", "\\\\").replace("\n", "\\n")
+                yield f"data: {escaped_chunk}\n\n"
+            else:
+                conversation = [
+                    {"role": "system", "content": ollama_service.build_chat_system_message()},
+                    *raw_messages,
+                ]
+                async for chunk in ollama_service.chat_stream(conversation):
+                    escaped_chunk = chunk.replace("\\", "\\\\").replace("\n", "\\n")
+                    yield f"data: {escaped_chunk}\n\n"
         except OllamaServiceError as exc:
             escaped_error = str(exc).replace("\\", "\\\\").replace("\n", "\\n")
             yield f"event: error\ndata: {escaped_error}\n\n"
