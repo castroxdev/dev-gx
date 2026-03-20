@@ -58,10 +58,12 @@ app/
 
 ## Como correr
 
-Garante primeiro que:
+1. Cria o ficheiro `.env` a partir de `.env.example`.
+2. Ajusta as variaveis conforme o teu ambiente local.
+3. Garante primeiro que:
 - o Ollama esta ativo
-- o modelo `qwen2.5-coder:7b` existe localmente
-- o servidor MCP esta ativo em `http://127.0.0.1:8765` ou ajusta `MCP_SERVER_BASE_URL` em `config.py`
+- o modelo configurado em `OLLAMA_MODEL` existe localmente
+- o servidor MCP esta ativo em `MCP_SERVER_BASE_URL` ou desativa-o em `MCP_SERVER_ENABLED=false`
 
 Depois:
 

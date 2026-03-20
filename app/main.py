@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from config import settings
 from api.routes import router as api_router
 from web.routes import router as web_router
 
@@ -16,6 +17,7 @@ def create_app() -> FastAPI:
         title="Dev GX",
         description="Planner tecnico com FastAPI, interface web e Ollama local.",
         version="0.2.0",
+        debug=settings.debug,
     )
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
