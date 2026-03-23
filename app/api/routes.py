@@ -1,10 +1,14 @@
-﻿import asyncio
+import asyncio
+import logging
+from time import perf_counter
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
-from app.prompts.policy import detect_response_language, refusal_message
 from app.config import settings
+from app.logging_utils import format_log_event
+from app.prompts.policy import detect_response_language, refusal_message
 from app.schemas.request import (
     ChatRequest,
     ConversationSyncRequest,
@@ -24,6 +28,7 @@ from app.services.conversation_store import ConversationStore
 from app.services.mcp_service import McpService, McpServiceError
 from app.services.ollama_service import OllamaService, OllamaServiceError
 from app.services.tool_runtime import format_tool_result, parse_tool_call_response
+from app.trace_store import trace_store
 from app.tools import build_tools_prompt_from_mcp
 
 
@@ -31,6 +36,7 @@ router = APIRouter(prefix="/api", tags=["planner"])
 ollama_service = OllamaService()
 conversation_store = ConversationStore()
 mcp_service = McpService()
+logger = logging.getLogger("devgx.api.chat")
 
 
 async def load_mcp_tools() -> list[dict]:
@@ -40,9 +46,23 @@ async def load_mcp_tools() -> list[dict]:
         return []
 
 
+def build_chat_log_context(payload: ChatRequest) -> dict[str, str | int | None]:
+    return {
+        "request_id": None,
+        "endpoint": None,
+        "conversation_id": payload.conversation_id or "none",
+        "message_count": len(payload.messages),
+    }
+
+
+def generate_request_id() -> str:
+    return f"req-{uuid4().hex[:8]}"
+
+
 async def execute_chat_with_mcp_tools(
     messages: list[dict[str, str]],
     mcp_tools: list[dict] | None = None,
+    log_context: dict[str, str | int | None] | None = None,
 ) -> str:
     mcp_tools = mcp_tools or await load_mcp_tools()
     tools_prompt = build_tools_prompt_from_mcp(mcp_tools)
@@ -52,7 +72,7 @@ async def execute_chat_with_mcp_tools(
     conversation.extend(messages)
 
     for _ in range(settings.max_tool_rounds):
-        reply = await ollama_service.chat(conversation)
+        reply = await ollama_service.chat(conversation, log_context=log_context)
         tool_call = parse_tool_call_response(reply, allowed_tools)
 
         if tool_call is None:
@@ -127,6 +147,28 @@ async def ollama_healthcheck() -> OllamaHealthResponse:
 async def mcp_healthcheck() -> McpHealthResponse:
     status_payload = await mcp_service.get_status()
     return McpHealthResponse(**status_payload)
+
+
+@router.get(
+    "/debug/traces",
+    status_code=status.HTTP_200_OK,
+)
+async def list_debug_traces(limit: int = 20) -> list[dict]:
+    return trace_store.list_traces(limit=limit)
+
+
+@router.get(
+    "/debug/traces/{request_id}",
+    status_code=status.HTTP_200_OK,
+)
+async def get_debug_trace(request_id: str) -> dict:
+    trace = trace_store.get_trace(request_id)
+    if trace is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trace nao encontrado.",
+        )
+    return trace
 
 
 @router.get(
@@ -260,22 +302,140 @@ async def generate_sql_schema(payload: GenerateSqlSchemaRequest) -> GenerateSqlS
     status_code=status.HTTP_200_OK,
 )
 async def chat(payload: ChatRequest) -> ChatResponse:
+    log_context = build_chat_log_context(payload)
+    log_context["request_id"] = generate_request_id()
+    log_context["endpoint"] = "/api/chat"
+    trace_store.start_trace(
+        request_id=str(log_context["request_id"]),
+        endpoint=str(log_context["endpoint"]),
+        conversation_id=str(log_context["conversation_id"]),
+        model=ollama_service.model,
+    )
+    trace_store.add_step(
+        str(log_context["request_id"]),
+        stage="request_received",
+        status="started",
+        message_count=log_context["message_count"],
+    )
+    logger.info(
+        format_log_event(
+            request_id=log_context["request_id"],
+            endpoint=log_context["endpoint"],
+            conversation_id=log_context["conversation_id"],
+            model=ollama_service.model,
+            stage="request_received",
+            status="started",
+            message_count=log_context["message_count"],
+        )
+    )
+
     last_user_message = payload.messages[-1].content
+    started_at = perf_counter()
     scope = await ollama_service.classify_request_scope(last_user_message)
     if scope["decision"] == "refuse":
         language = detect_response_language(last_user_message, scope["language"])
+        total_ms = (perf_counter() - started_at) * 1000
+        trace_store.add_step(
+            str(log_context["request_id"]),
+            stage="request_refused",
+            status="completed",
+            duration_ms=total_ms,
+        )
+        trace_store.finish_trace(
+            str(log_context["request_id"]),
+            status="success",
+            total_duration_ms=total_ms,
+        )
+        logger.info(
+            format_log_event(
+                request_id=log_context["request_id"],
+                endpoint=log_context["endpoint"],
+                conversation_id=log_context["conversation_id"],
+                model=ollama_service.model,
+                stage="request_refused",
+                duration_ms=total_ms,
+                status="completed",
+            )
+        )
         return ChatResponse(reply=refusal_message(language))
 
     try:
+        trace_store.add_step(
+            str(log_context["request_id"]),
+            stage="processing_started",
+            status="started",
+        )
+        logger.info(
+            format_log_event(
+                request_id=log_context["request_id"],
+                endpoint=log_context["endpoint"],
+                conversation_id=log_context["conversation_id"],
+                model=ollama_service.model,
+                stage="processing_started",
+                status="started",
+            )
+        )
         reply = await execute_chat_with_mcp_tools(
-            [message.model_dump() for message in payload.messages]
+            [message.model_dump() for message in payload.messages],
+            log_context=log_context,
         )
     except OllamaServiceError as exc:
+        total_ms = (perf_counter() - started_at) * 1000
+        trace_store.add_step(
+            str(log_context["request_id"]),
+            stage="error",
+            status="error",
+            duration_ms=total_ms,
+            error_type=type(exc).__name__,
+            detail=str(exc),
+        )
+        trace_store.finish_trace(
+            str(log_context["request_id"]),
+            status="error",
+            total_duration_ms=total_ms,
+        )
+        logger.exception(
+            format_log_event(
+                request_id=log_context["request_id"],
+                endpoint=log_context["endpoint"],
+                conversation_id=log_context["conversation_id"],
+                model=ollama_service.model,
+                stage="response_error",
+                duration_ms=total_ms,
+                status="error",
+                error_type=type(exc).__name__,
+            )
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
 
+    total_ms = (perf_counter() - started_at) * 1000
+    trace_store.add_step(
+        str(log_context["request_id"]),
+        stage="response_sent",
+        status="completed",
+        duration_ms=total_ms,
+        reply_chars=len(reply),
+    )
+    trace_store.finish_trace(
+        str(log_context["request_id"]),
+        status="success",
+        total_duration_ms=total_ms,
+    )
+    logger.info(
+        format_log_event(
+            request_id=log_context["request_id"],
+            endpoint=log_context["endpoint"],
+            conversation_id=log_context["conversation_id"],
+            model=ollama_service.model,
+            stage="response_sent",
+            duration_ms=total_ms,
+            status="completed",
+            reply_chars=len(reply),
+        )
+    )
     return ChatResponse(reply=reply)
 
 
@@ -284,10 +444,62 @@ async def chat(payload: ChatRequest) -> ChatResponse:
     status_code=status.HTTP_200_OK,
 )
 async def chat_stream(payload: ChatRequest) -> StreamingResponse:
+    log_context = build_chat_log_context(payload)
+    log_context["request_id"] = generate_request_id()
+    log_context["endpoint"] = "/api/chat/stream"
+    trace_store.start_trace(
+        request_id=str(log_context["request_id"]),
+        endpoint=str(log_context["endpoint"]),
+        conversation_id=str(log_context["conversation_id"]),
+        model=ollama_service.model,
+    )
+    trace_store.add_step(
+        str(log_context["request_id"]),
+        stage="request_received",
+        status="started",
+        message_count=log_context["message_count"],
+    )
+    logger.info(
+        format_log_event(
+            request_id=log_context["request_id"],
+            endpoint=log_context["endpoint"],
+            conversation_id=log_context["conversation_id"],
+            model=ollama_service.model,
+            stage="request_received",
+            status="started",
+            message_count=log_context["message_count"],
+        )
+    )
+
     last_user_message = payload.messages[-1].content
+    started_at = perf_counter()
     scope = await ollama_service.classify_request_scope(last_user_message)
     if scope["decision"] == "refuse":
         language = detect_response_language(last_user_message, scope["language"])
+        total_ms = (perf_counter() - started_at) * 1000
+        trace_store.add_step(
+            str(log_context["request_id"]),
+            stage="request_refused",
+            status="completed",
+            duration_ms=total_ms,
+        )
+        trace_store.finish_trace(
+            str(log_context["request_id"]),
+            status="success",
+            total_duration_ms=total_ms,
+        )
+        logger.info(
+            format_log_event(
+                request_id=log_context["request_id"],
+                endpoint=log_context["endpoint"],
+                conversation_id=log_context["conversation_id"],
+                model=ollama_service.model,
+                stage="request_refused",
+                duration_ms=total_ms,
+                status="completed",
+            )
+        )
+
         async def refusal_stream():
             escaped_chunk = refusal_message(language).replace("\\", "\\\\").replace("\n", "\\n")
             yield f"data: {escaped_chunk}\n\n"
@@ -303,13 +515,35 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
             },
         )
 
+    stream_log_context = dict(log_context)
+    trace_store.add_step(
+        str(stream_log_context["request_id"]),
+        stage="processing_started",
+        status="started",
+    )
+    logger.info(
+        format_log_event(
+            request_id=stream_log_context["request_id"],
+            endpoint=stream_log_context["endpoint"],
+            conversation_id=stream_log_context["conversation_id"],
+            model=ollama_service.model,
+            stage="processing_started",
+            status="started",
+        )
+    )
+
     async def stream_generator():
+        stream_failed = False
         try:
             raw_messages = [message.model_dump() for message in payload.messages]
             mcp_tools = await load_mcp_tools()
 
             if mcp_tools:
-                reply = await execute_chat_with_mcp_tools(raw_messages, mcp_tools=mcp_tools)
+                reply = await execute_chat_with_mcp_tools(
+                    raw_messages,
+                    mcp_tools=mcp_tools,
+                    log_context=stream_log_context,
+                )
                 escaped_chunk = reply.replace("\\", "\\\\").replace("\n", "\\n")
                 yield f"data: {escaped_chunk}\n\n"
             else:
@@ -317,13 +551,67 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
                     {"role": "system", "content": ollama_service.build_chat_system_message()},
                     *raw_messages,
                 ]
-                async for chunk in ollama_service.chat_stream(conversation):
+                async for chunk in ollama_service.chat_stream(conversation, log_context=stream_log_context):
                     escaped_chunk = chunk.replace("\\", "\\\\").replace("\n", "\\n")
                     yield f"data: {escaped_chunk}\n\n"
         except OllamaServiceError as exc:
+            stream_failed = True
+            total_ms = (perf_counter() - started_at) * 1000
+            trace_store.add_step(
+                str(stream_log_context["request_id"]),
+                stage="error",
+                status="error",
+                duration_ms=total_ms,
+                error_type=type(exc).__name__,
+                detail=str(exc),
+            )
+            trace_store.finish_trace(
+                str(stream_log_context["request_id"]),
+                status="error",
+                total_duration_ms=total_ms,
+            )
+            logger.exception(
+                format_log_event(
+                    request_id=stream_log_context["request_id"],
+                    endpoint=stream_log_context["endpoint"],
+                    conversation_id=stream_log_context["conversation_id"],
+                    model=ollama_service.model,
+                    stage="response_error",
+                    duration_ms=total_ms,
+                    status="error",
+                    error_type=type(exc).__name__,
+                )
+            )
             escaped_error = str(exc).replace("\\", "\\\\").replace("\n", "\\n")
             yield f"event: error\ndata: {escaped_error}\n\n"
 
+        if stream_failed:
+            yield "event: done\ndata: [DONE]\n\n"
+            return
+
+        total_ms = (perf_counter() - started_at) * 1000
+        trace_store.add_step(
+            str(stream_log_context["request_id"]),
+            stage="response_sent",
+            status="completed",
+            duration_ms=total_ms,
+        )
+        trace_store.finish_trace(
+            str(stream_log_context["request_id"]),
+            status="success",
+            total_duration_ms=total_ms,
+        )
+        logger.info(
+            format_log_event(
+                request_id=stream_log_context["request_id"],
+                endpoint=stream_log_context["endpoint"],
+                conversation_id=stream_log_context["conversation_id"],
+                model=ollama_service.model,
+                stage="response_sent",
+                duration_ms=total_ms,
+                status="completed",
+            )
+        )
         yield "event: done\ndata: [DONE]\n\n"
 
     return StreamingResponse(
