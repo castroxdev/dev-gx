@@ -249,6 +249,203 @@ def build_invalid_tool_call_fallback(tool_name: str) -> str:
     )
 
 
+def should_use_tool_execution_in_stream(last_user_message: str) -> bool:
+    text = last_user_message.strip().lower()
+    if not text:
+        return False
+
+    explicit_tool_signals = (
+        "usa a tool",
+        "usar a tool",
+        "usa tool",
+        "usar tool",
+        "usa a ferramenta",
+        "usar a ferramenta",
+        "generate_mvp_plan",
+        "generate_sql_schema",
+        "suggest_api_endpoints",
+        "mcp",
+    )
+    if any(signal in text for signal in explicit_tool_signals):
+        return True
+
+    domain_request_signals = (
+        "plano mvp",
+        "schema sql",
+        "gerar sql",
+        "esquema sql",
+        "endpoints api",
+        "sugerir endpoints",
+    )
+    return any(signal in text for signal in domain_request_signals)
+
+
+def extract_explicit_tool_request(
+    last_user_message: str,
+    available_tools: list[dict],
+) -> dict[str, dict[str, object]] | None:
+    text = last_user_message.strip()
+    lower_text = text.lower()
+    if not text:
+        return None
+
+    available_tool_names = [
+        str(tool.get("name", "")).strip()
+        for tool in available_tools
+        if str(tool.get("name", "")).strip()
+    ]
+
+    matched_tool_name = next(
+        (tool_name for tool_name in available_tool_names if tool_name.lower() in lower_text),
+        None,
+    )
+    if matched_tool_name is None:
+        return None
+
+    explicit_request_signals = (
+        "usa",
+        "usar",
+        "executa",
+        "executar",
+        "chama",
+        "chamar",
+        "utiliza",
+        "utilizar",
+    )
+    if not any(signal in lower_text for signal in explicit_request_signals):
+        return None
+
+    arguments: dict[str, object] = {"project_brief": text}
+
+    if matched_tool_name == "generate_sql_schema":
+        if "postgres" in lower_text or "postgresql" in lower_text:
+            arguments["database_engine"] = "postgresql"
+        elif "mysql" in lower_text:
+            arguments["database_engine"] = "mysql"
+        elif "sqlite" in lower_text:
+            arguments["database_engine"] = "sqlite"
+
+    return {
+        "tool": matched_tool_name,
+        "arguments": arguments,
+    }
+
+
+def route_domain_tool_request(
+    last_user_message: str,
+    available_tools: list[dict],
+) -> dict[str, dict[str, object]] | None:
+    explicit_request = extract_explicit_tool_request(last_user_message, available_tools)
+    if explicit_request is not None:
+        return explicit_request
+
+    text = last_user_message.strip()
+    lower_text = text.lower()
+    if not text:
+        return None
+
+    available_tool_names = {
+        str(tool.get("name", "")).strip()
+        for tool in available_tools
+        if str(tool.get("name", "")).strip()
+    }
+
+    has_mvp_signal = "mvp" in lower_text and any(
+        keyword in lower_text for keyword in ("plano", "roadmap", "fases", "passos", "escopo")
+    )
+    has_sql_signal = any(
+        keyword in lower_text
+        for keyword in ("schema sql", "esquema sql", "sql", "tabelas", "base de dados", "banco de dados")
+    )
+    has_api_signal = any(
+        keyword in lower_text
+        for keyword in ("endpoint", "endpoints", "api", "rota", "rotas")
+    )
+
+    if has_sql_signal and "generate_sql_schema" in available_tool_names:
+        arguments: dict[str, object] = {"project_brief": text}
+        if "postgres" in lower_text or "postgresql" in lower_text:
+            arguments["database_engine"] = "postgresql"
+        elif "mysql" in lower_text:
+            arguments["database_engine"] = "mysql"
+        elif "sqlite" in lower_text:
+            arguments["database_engine"] = "sqlite"
+        return {
+            "tool": "generate_sql_schema",
+            "arguments": arguments,
+        }
+
+    if has_api_signal and "suggest_api_endpoints" in available_tool_names:
+        arguments = {"project_brief": text}
+        if "bearer" in lower_text or "jwt" in lower_text:
+            arguments["auth_style"] = "bearer"
+        elif "session" in lower_text:
+            arguments["auth_style"] = "session"
+        elif "public" in lower_text:
+            arguments["auth_style"] = "public"
+        return {
+            "tool": "suggest_api_endpoints",
+            "arguments": arguments,
+        }
+
+    if has_mvp_signal and "generate_mvp_plan" in available_tool_names:
+        return {
+            "tool": "generate_mvp_plan",
+            "arguments": {"project_brief": text},
+        }
+
+    return None
+
+
+async def execute_explicit_tool_request(
+    *,
+    tool_name: str,
+    arguments: dict[str, object],
+    request_id: str | None,
+) -> str:
+    if request_id is not None:
+        add_tool_call_trace(
+            request_id,
+            tool_name=tool_name,
+            tool_input=arguments,
+            status="started",
+        )
+
+    try:
+        tool_result = await execute_tool_by_name(tool_name, arguments)
+    except (McpServiceError, ValueError) as exc:
+        if request_id is not None:
+            add_tool_call_trace(
+                request_id,
+                tool_name=tool_name,
+                tool_input=arguments,
+                tool_result={"error": str(exc)},
+                error_detail=str(exc),
+                status="error",
+            )
+        return build_tool_result_fallback(tool_name, {"error": str(exc)})
+
+    if request_id is not None:
+        add_tool_call_trace(
+            request_id,
+            tool_name=tool_name,
+            tool_input=arguments,
+            tool_result=tool_result,
+            status="completed",
+        )
+
+    return build_tool_result_fallback(tool_name, tool_result)
+
+
+def build_stream_tool_progress_message(tool_name: str) -> str:
+    messages = {
+        "generate_mvp_plan": "A gerar plano MVP...",
+        "generate_sql_schema": "A criar esquema SQL...",
+        "suggest_api_endpoints": "A sugerir endpoints API...",
+    }
+    return messages.get(tool_name, "A processar pedido...")
+
+
 async def execute_chat_with_mcp_tools(
     messages: list[dict[str, str]],
     mcp_tools: list[dict] | None = None,
@@ -621,10 +818,20 @@ async def chat(payload: ChatRequest) -> ChatResponse:
                 status="started",
             )
         )
-        reply = await execute_chat_with_mcp_tools(
-            [message.model_dump() for message in payload.messages],
-            log_context=log_context,
-        )
+        available_tools = await load_available_tools()
+        routed_tool_request = route_domain_tool_request(last_user_message, available_tools)
+        if routed_tool_request is not None:
+            reply = await execute_explicit_tool_request(
+                tool_name=str(routed_tool_request["tool"]),
+                arguments=dict(routed_tool_request["arguments"]),
+                request_id=str(log_context["request_id"]),
+            )
+        else:
+            reply = await execute_chat_with_mcp_tools(
+                [message.model_dump() for message in payload.messages],
+                mcp_tools=available_tools,
+                log_context=log_context,
+            )
     except OllamaServiceError as exc:
         total_ms = (perf_counter() - started_at) * 1000
         trace_store.add_step(
@@ -788,16 +995,18 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
         final_reply: str | None = None
         try:
             raw_messages = [message.model_dump() for message in payload.messages]
-            mcp_tools = await load_available_tools()
-
-            if mcp_tools:
-                reply = await execute_chat_with_mcp_tools(
-                    raw_messages,
-                    mcp_tools=mcp_tools,
-                    log_context=stream_log_context,
+            available_tools = await load_available_tools()
+            routed_tool_request = route_domain_tool_request(last_user_message, available_tools)
+            if routed_tool_request is not None:
+                progress_message = build_stream_tool_progress_message(str(routed_tool_request["tool"]))
+                escaped_progress = progress_message.replace("\\", "\\\\").replace("\n", "\\n")
+                yield f"data: {escaped_progress}\n\n"
+                final_reply = await execute_explicit_tool_request(
+                    tool_name=str(routed_tool_request["tool"]),
+                    arguments=dict(routed_tool_request["arguments"]),
+                    request_id=str(stream_log_context["request_id"]),
                 )
-                final_reply = reply
-                escaped_chunk = reply.replace("\\", "\\\\").replace("\n", "\\n")
+                escaped_chunk = final_reply.replace("\\", "\\\\").replace("\n", "\\n")
                 yield f"data: {escaped_chunk}\n\n"
             else:
                 conversation = [
