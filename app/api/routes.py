@@ -78,6 +78,26 @@ def add_final_response_trace(request_id: str, reply: str) -> None:
     )
 
 
+def add_tool_call_trace(
+    request_id: str,
+    *,
+    tool_name: str,
+    status: str,
+    tool_input: dict | None = None,
+    tool_result: object | None = None,
+    error_detail: str | None = None,
+) -> None:
+    trace_store.add_step(
+        request_id,
+        stage="tool_call",
+        status=status,
+        tool_name=tool_name,
+        tool_input=tool_input,
+        tool_result=tool_result,
+        error_detail=error_detail,
+    )
+
+
 async def execute_chat_with_mcp_tools(
     messages: list[dict[str, str]],
     mcp_tools: list[dict] | None = None,
@@ -97,12 +117,38 @@ async def execute_chat_with_mcp_tools(
         if tool_call is None:
             return reply
 
+        request_id = str(log_context["request_id"]) if log_context and log_context.get("request_id") else None
+        if request_id is not None:
+            add_tool_call_trace(
+                request_id,
+                tool_name=tool_call["tool"],
+                tool_input=tool_call["arguments"],
+                status="started",
+            )
+
         conversation.append({"role": "assistant", "content": reply})
 
         try:
             tool_result = await mcp_service.call_tool(tool_call["tool"], tool_call["arguments"])
+            if request_id is not None:
+                add_tool_call_trace(
+                    request_id,
+                    tool_name=tool_call["tool"],
+                    tool_input=tool_call["arguments"],
+                    tool_result=tool_result,
+                    status="completed",
+                )
             tool_result_message = format_tool_result(tool_call["tool"], tool_result)
         except McpServiceError as exc:
+            if request_id is not None:
+                add_tool_call_trace(
+                    request_id,
+                    tool_name=tool_call["tool"],
+                    tool_input=tool_call["arguments"],
+                    tool_result={"error": str(exc)},
+                    error_detail=str(exc),
+                    status="error",
+                )
             tool_result_message = format_tool_result(
                 tool_call["tool"],
                 {"error": str(exc)},
