@@ -34,10 +34,15 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
 
     sections: list[str] = [
         "Ferramentas MCP disponiveis:",
+        "Usa uma tool MCP quando o pedido exigir dados reais, verificacao, inspecao, listagem ou consulta que a tool possa fornecer.",
+        "Se o utilizador pedir explicitamente para usar uma tool, a tua primeira resposta deve ser um tool_call valido sempre que exista uma tool adequada.",
+        "Nao respondas com conhecimento geral nem inventes resultados se uma tool MCP puder obter a informacao pedida.",
         "Quando precisares de usar uma tool MCP, responde apenas com JSON puro neste formato:",
         '{"type":"tool_call","tool":"nome_da_tool","arguments":{"campo":"valor"}}',
         "Nao uses markdown nem texto extra quando fizeres tool_call.",
+        "Escolhe argumentos simples, validos e alinhados com o input_schema da tool.",
         "Quando receberes TOOL_RESULT, usa o resultado para continuar ou faz novo tool_call se ainda faltar contexto.",
+        "Se ja tiveres TOOL_RESULT suficiente, responde de forma final sem repetir o JSON de tool_call.",
     ]
 
     for tool in tools:

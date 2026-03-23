@@ -189,6 +189,7 @@ class OllamaService:
         started_at = perf_counter()
         data = await self._post_json(self.chat_url, payload)
         elapsed_ms = (perf_counter() - started_at) * 1000
+        llm_metrics = self._extract_llm_metrics(data)
         message = data.get("message", {})
         content = message.get("content", "").strip()
 
@@ -198,6 +199,7 @@ class OllamaService:
                 stage="ollama_response_received",
                 status="empty",
                 duration_ms=elapsed_ms,
+                **llm_metrics,
             )
             logger.error(
                 format_log_event(
@@ -208,6 +210,7 @@ class OllamaService:
                     stage="ollama_response_received",
                     duration_ms=elapsed_ms,
                     status="empty",
+                    **llm_metrics,
                 )
             )
             raise OllamaServiceError("O Ollama nao devolveu conteudo para a resposta.")
@@ -218,6 +221,7 @@ class OllamaService:
             status="completed",
             duration_ms=elapsed_ms,
             reply_chars=len(content),
+            **llm_metrics,
         )
         logger.info(
             format_log_event(
@@ -229,6 +233,7 @@ class OllamaService:
                 duration_ms=elapsed_ms,
                 status="completed",
                 reply_chars=len(content),
+                **llm_metrics,
             )
         )
         return content
@@ -266,6 +271,7 @@ class OllamaService:
             message_count=len(trimmed_messages),
         )
         started_at = perf_counter()
+        llm_metrics: dict[str, int | float] = {}
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -283,6 +289,10 @@ class OllamaService:
                                 "O Ollama respondeu com um fragmento invalido durante o streaming."
                             ) from exc
 
+                        chunk_metrics = self._extract_llm_metrics(data)
+                        if chunk_metrics:
+                            llm_metrics = chunk_metrics
+
                         message = data.get("message", {})
                         content = str(message.get("content", ""))
                         if content:
@@ -294,6 +304,7 @@ class OllamaService:
                 stage="ollama_response_received",
                 status="completed",
                 duration_ms=elapsed_ms,
+                **llm_metrics,
             )
             logger.info(
                 format_log_event(
@@ -304,6 +315,7 @@ class OllamaService:
                     stage="ollama_response_received",
                     duration_ms=elapsed_ms,
                     status="completed",
+                    **llm_metrics,
                 )
             )
         except httpx.RequestError as exc:
@@ -406,6 +418,23 @@ class OllamaService:
         if fenced_match:
             return fenced_match.group(1).strip()
         return text.strip()
+
+    def _extract_llm_metrics(self, data: dict) -> dict[str, int | float]:
+        metrics: dict[str, int | float] = {}
+
+        for field in (
+            "total_duration",
+            "load_duration",
+            "prompt_eval_count",
+            "prompt_eval_duration",
+            "eval_count",
+            "eval_duration",
+        ):
+            value = data.get(field)
+            if isinstance(value, int | float):
+                metrics[field] = value
+
+        return metrics
 
     def _context_value(
         self,
