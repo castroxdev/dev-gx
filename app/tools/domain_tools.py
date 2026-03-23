@@ -1,3 +1,5 @@
+import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -111,10 +113,77 @@ generate_sql_schema_tool = DomainToolDefinition(
     },
 )
 
+suggest_api_endpoints_tool = DomainToolDefinition(
+    name="suggest_api_endpoints",
+    description=(
+        "Sugere endpoints API iniciais para o MVP com metodos, paths, objetivo e contratos "
+        "basicos de request e response."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "project_brief": {
+                "type": "string",
+                "description": "Descricao principal do produto e do problema a servir pela API.",
+            },
+            "core_entities": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Entidades principais que a API deve expor ou manipular.",
+            },
+            "core_features": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Funcionalidades principais que influenciam os endpoints do MVP.",
+            },
+            "auth_style": {
+                "type": "string",
+                "description": "Estilo de autenticacao esperado, como bearer, session ou public.",
+            },
+            "constraints": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Restricoes tecnicas ou de negocio relevantes para a API.",
+            },
+        },
+        "required": ["project_brief"],
+        "additionalProperties": False,
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "api_summary": {"type": "string"},
+            "assumptions": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "endpoints": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "method": {"type": "string"},
+                        "path": {"type": "string"},
+                        "purpose": {"type": "string"},
+                        "request": {"type": "string"},
+                        "response": {"type": "string"},
+                    },
+                    "required": ["method", "path", "purpose"],
+                    "additionalProperties": False,
+                },
+            },
+            "suggested_base_path": {"type": "string"},
+        },
+        "required": ["api_summary", "assumptions", "endpoints"],
+        "additionalProperties": False,
+    },
+)
+
 
 DOMAIN_TOOLS: tuple[DomainToolDefinition, ...] = (
     generate_mvp_plan_tool,
     generate_sql_schema_tool,
+    suggest_api_endpoints_tool,
 )
 DOMAIN_TOOL_MAP = {tool.name: tool for tool in DOMAIN_TOOLS}
 
@@ -144,6 +213,9 @@ async def execute_domain_tool(
 
     if tool_name == generate_sql_schema_tool.name:
         return await _execute_generate_sql_schema(arguments, ollama_service)
+
+    if tool_name == suggest_api_endpoints_tool.name:
+        return await _execute_suggest_api_endpoints(arguments, ollama_service)
 
     raise ValueError(f"Tool de dominio desconhecida: {tool_name}")
 
@@ -219,6 +291,51 @@ async def _execute_generate_sql_schema(
     return response
 
 
+async def _execute_suggest_api_endpoints(
+    arguments: dict[str, Any],
+    ollama_service: OllamaService,
+) -> dict[str, Any]:
+    project_brief = str(arguments.get("project_brief", "")).strip()
+    if len(project_brief) < 5:
+        raise ValueError("A tool suggest_api_endpoints exige um campo project_brief valido.")
+
+    core_entities = _normalize_string_list(arguments.get("core_entities"))
+    core_features = _normalize_string_list(arguments.get("core_features"))
+    constraints = _normalize_string_list(arguments.get("constraints"))
+    auth_style = str(arguments.get("auth_style", "")).strip().lower()
+
+    api_prompt = _build_api_endpoints_prompt(
+        project_brief=project_brief,
+        core_entities=core_entities,
+        core_features=core_features,
+        auth_style=auth_style,
+        constraints=constraints,
+    )
+    raw_response = await ollama_service.chat(api_prompt)
+    parsed = _parse_api_endpoints_response(raw_response)
+
+    endpoints = _normalize_endpoints(parsed.get("endpoints"))
+    if not endpoints:
+        raise ValueError("A tool suggest_api_endpoints nao conseguiu gerar endpoints validos.")
+
+    response: dict[str, Any] = {
+        "api_summary": str(parsed.get("api_summary", "")).strip() or project_brief,
+        "assumptions": _build_api_assumptions(
+            core_entities=core_entities,
+            core_features=core_features,
+            auth_style=auth_style,
+            constraints=constraints,
+        ),
+        "endpoints": endpoints,
+    }
+
+    suggested_base_path = str(parsed.get("suggested_base_path", "")).strip()
+    if suggested_base_path:
+        response["suggested_base_path"] = suggested_base_path
+
+    return response
+
+
 def _normalize_string_list(raw_value: Any) -> list[str]:
     if not isinstance(raw_value, list):
         return []
@@ -272,6 +389,55 @@ def _build_sql_schema_prompt(
     return "\n\n".join(sections).strip()
 
 
+def _build_api_endpoints_prompt(
+    *,
+    project_brief: str,
+    core_entities: list[str],
+    core_features: list[str],
+    auth_style: str,
+    constraints: list[str],
+) -> list[dict[str, str]]:
+    sections = [f"Projeto:\n{project_brief}"]
+
+    if core_entities:
+        sections.append("Entidades principais:\n- " + "\n- ".join(core_entities))
+    if core_features:
+        sections.append("Funcionalidades core:\n- " + "\n- ".join(core_features))
+    if auth_style:
+        sections.append(f"Estilo de autenticacao:\n{auth_style}")
+    if constraints:
+        sections.append("Restricoes:\n- " + "\n- ".join(constraints))
+
+    instructions = """
+Devolve apenas JSON valido com esta estrutura:
+{
+  "api_summary": "string",
+  "suggested_base_path": "string opcional",
+  "endpoints": [
+    {
+      "method": "GET|POST|PUT|PATCH|DELETE",
+      "path": "/...",
+      "purpose": "objetivo do endpoint",
+      "request": "resumo curto do request quando fizer sentido",
+      "response": "resumo curto do response quando fizer sentido"
+    }
+  ]
+}
+
+Regras:
+- Sugere apenas endpoints essenciais para um MVP.
+- Prefere REST simples.
+- Usa paths consistentes e previsiveis.
+- Inclui request e response quando fizer sentido.
+- Nao uses markdown nem texto fora do JSON.
+""".strip()
+
+    return [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": "\n\n".join(sections).strip()},
+    ]
+
+
 def _build_mvp_assumptions(
     *,
     target_users: list[str],
@@ -311,6 +477,27 @@ def _build_sql_assumptions(
     return assumptions
 
 
+def _build_api_assumptions(
+    *,
+    core_entities: list[str],
+    core_features: list[str],
+    auth_style: str,
+    constraints: list[str],
+) -> list[str]:
+    assumptions: list[str] = []
+
+    if not core_entities:
+        assumptions.append("As entidades principais da API serao inferidas a partir do briefing e das funcionalidades descritas.")
+    if not core_features:
+        assumptions.append("Os endpoints vao cobrir apenas os fluxos essenciais do MVP descrito no briefing.")
+    if not auth_style:
+        assumptions.append("Sem estilo de autenticacao indicado, a sugestao assume autenticacao bearer simples apenas quando fizer sentido.")
+    if not constraints:
+        assumptions.append("Sem restricoes explicitas, a API assume REST simples com payloads curtos e validacoes basicas.")
+
+    return assumptions
+
+
 def _build_suggested_sql_file_name(project_brief: str) -> str:
     words = []
     for raw_part in project_brief.lower().split():
@@ -324,3 +511,53 @@ def _build_suggested_sql_file_name(project_brief: str) -> str:
         return "schema"
 
     return "_".join(words) + "_schema"
+
+
+def _parse_api_endpoints_response(raw_response: str) -> dict[str, Any]:
+    text = raw_response.strip()
+    fenced_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.IGNORECASE | re.DOTALL)
+    if fenced_match:
+        text = fenced_match.group(1).strip()
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("A tool suggest_api_endpoints recebeu JSON invalido do modelo.") from exc
+
+    if not isinstance(parsed, dict):
+        raise ValueError("A tool suggest_api_endpoints recebeu um payload invalido do modelo.")
+
+    return parsed
+
+
+def _normalize_endpoints(raw_value: Any) -> list[dict[str, str]]:
+    if not isinstance(raw_value, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for item in raw_value:
+        if not isinstance(item, dict):
+            continue
+
+        method = str(item.get("method", "")).strip().upper()
+        path = str(item.get("path", "")).strip()
+        purpose = str(item.get("purpose", "")).strip()
+        if not method or not path or not purpose:
+            continue
+
+        endpoint = {
+            "method": method,
+            "path": path,
+            "purpose": purpose,
+        }
+
+        request = str(item.get("request", "")).strip()
+        response = str(item.get("response", "")).strip()
+        if request:
+            endpoint["request"] = request
+        if response:
+            endpoint["response"] = response
+
+        normalized.append(endpoint)
+
+    return normalized

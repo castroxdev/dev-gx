@@ -63,6 +63,10 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
                 sections.append(
                     "  usa_para: pedidos de schema SQL inicial, tabelas, relacoes, chaves, indices e estrutura de base de dados do MVP."
                 )
+            if name == "suggest_api_endpoints":
+                sections.append(
+                    "  usa_para: pedidos de endpoints API iniciais, rotas REST, contratos de request/response e estrutura base de backend."
+                )
             if input_schema:
                 sections.append(f"  input_schema: {json.dumps(input_schema, ensure_ascii=True)}")
 
