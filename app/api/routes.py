@@ -674,6 +674,7 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
             stage="response_sent",
             status="completed",
             duration_ms=total_ms,
+            reply_chars=len(final_reply),
         )
         trace_store.finish_trace(
             str(stream_log_context["request_id"]),
@@ -689,6 +690,7 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
                 stage="response_sent",
                 duration_ms=total_ms,
                 status="completed",
+                reply_chars=len(final_reply),
             )
         )
         yield "event: done\ndata: [DONE]\n\n"
