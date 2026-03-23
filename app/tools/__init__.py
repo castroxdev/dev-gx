@@ -38,6 +38,7 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
         "Nunca inventes nomes de tools, aliases ou nomes mais descritivos do que os fornecidos pelo servidor MCP.",
         "Se nao existir uma tool adequada na lista, nao devolvas tool_call inventado; responde normalmente com as limitacoes.",
         "Usa uma tool MCP quando o pedido exigir dados reais, verificacao, inspecao, listagem ou consulta que a tool possa fornecer.",
+        "Se o pedido for claramente para gerar um plano de MVP de um produto, prefere a tool generate_mvp_plan quando ela estiver disponivel.",
         "Se o utilizador pedir explicitamente para usar uma tool, a tua primeira resposta deve ser um tool_call valido sempre que exista uma tool adequada.",
         "Nao respondas com conhecimento geral nem inventes resultados se uma tool MCP puder obter a informacao pedida.",
         "Quando precisares de usar uma tool MCP, responde apenas com JSON puro neste formato:",
@@ -54,6 +55,10 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
         input_schema = tool.get("inputSchema")
         if name:
             sections.append(f"- {name}: {description}")
+            if name == "generate_mvp_plan":
+                sections.append(
+                    "  usa_para: pedidos de plano MVP, fases de implementacao, escopo inicial, entidades, base de dados e API de um produto."
+                )
             if input_schema:
                 sections.append(f"  input_schema: {json.dumps(input_schema, ensure_ascii=True)}")
 
