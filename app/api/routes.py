@@ -143,6 +143,24 @@ def extract_user_friendly_tool_text(tool_result: object) -> str | None:
         text = tool_result.strip()
         return text or None
 
+    if isinstance(tool_result, dict):
+        mvp_plan = str(tool_result.get("mvp_plan_markdown", "")).strip()
+        if mvp_plan:
+            sections: list[str] = []
+
+            project_summary = str(tool_result.get("project_summary", "")).strip()
+            if project_summary:
+                sections.append(f"Resumo do projeto:\n{project_summary}")
+
+            assumptions = tool_result.get("assumptions")
+            if isinstance(assumptions, list):
+                normalized_assumptions = [str(item).strip() for item in assumptions if str(item).strip()]
+                if normalized_assumptions:
+                    sections.append("Suposicoes assumidas:\n- " + "\n- ".join(normalized_assumptions))
+
+            sections.append(mvp_plan)
+            return "\n\n".join(section for section in sections if section.strip()).strip()
+
     if isinstance(tool_result, list):
         text_parts: list[str] = []
         for item in tool_result:
