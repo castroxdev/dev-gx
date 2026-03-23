@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     app_env: str = Field(default="development", alias="APP_ENV")
     debug: bool = Field(default=True, alias="DEBUG")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="qwen2.5-coder:7b", alias="OLLAMA_MODEL")
