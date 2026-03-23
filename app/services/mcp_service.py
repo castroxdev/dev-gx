@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from typing import Any
 
@@ -115,6 +116,9 @@ class McpService:
             },
         )
 
+        if self.session_id is not None:
+            return
+
         session_id = result.get("sessionId")
         if isinstance(session_id, str) and session_id.strip():
             self.session_id = session_id.strip()
@@ -126,7 +130,10 @@ class McpService:
             "method": method,
             "params": params,
         }
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
         if self.session_id:
             headers["Mcp-Session-Id"] = self.session_id
 
@@ -134,17 +141,28 @@ class McpService:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(self.base_url, json=payload, headers=headers)
                 response.raise_for_status()
-                data = response.json()
+                response_session_id = response.headers.get("mcp-session-id")
+                if isinstance(response_session_id, str) and response_session_id.strip():
+                    self.session_id = response_session_id.strip()
+                data = self._parse_response_data(response)
         except httpx.RequestError as exc:
             raise McpServiceError(
                 f"Nao foi possivel comunicar com o servidor MCP em {self.base_url}."
             ) from exc
         except httpx.HTTPStatusError as exc:
+            content_type = exc.response.headers.get("Content-Type", "desconhecido")
+            raw_preview = exc.response.text.strip().replace("\n", "\\n")[:240] or "<vazio>"
             raise McpServiceError(
-                f"O servidor MCP devolveu HTTP {exc.response.status_code}."
+                f"O servidor MCP devolveu HTTP {exc.response.status_code}. "
+                f"method={method}. content_type={content_type}. body_preview={raw_preview}"
             ) from exc
         except ValueError as exc:
-            raise McpServiceError("O servidor MCP respondeu com JSON invalido.") from exc
+            content_type = response.headers.get("Content-Type", "desconhecido")
+            raw_preview = response.text.strip().replace("\n", "\\n")[:240] or "<vazio>"
+            raise McpServiceError(
+                "O servidor MCP respondeu com formato invalido. "
+                f"content_type={content_type}. body_preview={raw_preview}"
+            ) from exc
 
         if not isinstance(data, dict):
             raise McpServiceError("O servidor MCP devolveu uma resposta invalida.")
@@ -159,3 +177,28 @@ class McpService:
             raise McpServiceError("O servidor MCP devolveu um resultado invalido.")
 
         return result
+
+    def _parse_response_data(self, response: httpx.Response) -> dict[str, Any]:
+        content_type = response.headers.get("Content-Type", "").lower()
+
+        if "text/event-stream" in content_type:
+            return self._parse_sse_response(response.text)
+
+        return response.json()
+
+    def _parse_sse_response(self, raw_text: str) -> dict[str, Any]:
+        data_lines: list[str] = []
+
+        for line in raw_text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("data:"):
+                data_lines.append(stripped[5:].strip())
+
+        if not data_lines:
+            raise ValueError("Resposta SSE sem bloco data.")
+
+        payload = "\n".join(data_lines).strip()
+        if not payload:
+            raise ValueError("Resposta SSE com data vazia.")
+
+        return json.loads(payload)

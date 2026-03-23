@@ -6,7 +6,7 @@ from typing import Any
 TOOL_CALL_PATTERN = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
 
-def parse_tool_call_response(raw_text: str, allowed_tools: set[str]) -> dict[str, Any] | None:
+def extract_tool_call_response(raw_text: str) -> dict[str, Any] | None:
     text = raw_text.strip()
     if not text:
         return None
@@ -29,7 +29,7 @@ def parse_tool_call_response(raw_text: str, allowed_tools: set[str]) -> dict[str
     tool_name = str(parsed.get("tool", "")).strip()
     arguments = parsed.get("arguments", {})
 
-    if not tool_name or tool_name not in allowed_tools:
+    if not tool_name:
         return None
     if not isinstance(arguments, dict):
         return None
@@ -38,6 +38,15 @@ def parse_tool_call_response(raw_text: str, allowed_tools: set[str]) -> dict[str
         "tool": tool_name,
         "arguments": arguments,
     }
+
+
+def parse_tool_call_response(raw_text: str, allowed_tools: set[str]) -> dict[str, Any] | None:
+    parsed = extract_tool_call_response(raw_text)
+    if parsed is None:
+        return None
+    if parsed["tool"] not in allowed_tools:
+        return None
+    return parsed
 
 
 def format_tool_result(tool_name: str, result: Any) -> str:

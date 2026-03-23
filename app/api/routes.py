@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from time import perf_counter
 from uuid import uuid4
@@ -27,7 +28,11 @@ from app.schemas.response import (
 from app.services.conversation_store import ConversationStore
 from app.services.mcp_service import McpService, McpServiceError
 from app.services.ollama_service import OllamaService, OllamaServiceError
-from app.services.tool_runtime import format_tool_result, parse_tool_call_response
+from app.services.tool_runtime import (
+    extract_tool_call_response,
+    format_tool_result,
+    parse_tool_call_response,
+)
 from app.trace_store import trace_store
 from app.tools import build_tools_prompt_from_mcp
 
@@ -98,6 +103,49 @@ def add_tool_call_trace(
     )
 
 
+def build_tool_result_fallback(tool_name: str, tool_result: object) -> str:
+    rendered_text = extract_user_friendly_tool_text(tool_result)
+    if rendered_text is not None:
+        return rendered_text
+
+    if isinstance(tool_result, str):
+        rendered_result = tool_result.strip() or "<sem conteudo>"
+    else:
+        rendered_result = json.dumps(tool_result, ensure_ascii=False, indent=2)
+
+    return f"Resultado da tool '{tool_name}':\n{rendered_result}"
+
+
+def extract_user_friendly_tool_text(tool_result: object) -> str | None:
+    if isinstance(tool_result, str):
+        text = tool_result.strip()
+        return text or None
+
+    if isinstance(tool_result, list):
+        text_parts: list[str] = []
+        for item in tool_result:
+            if not isinstance(item, dict):
+                return None
+            if str(item.get("type", "")).strip() != "text":
+                return None
+
+            text = str(item.get("text", "")).strip()
+            if text:
+                text_parts.append(text)
+
+        if text_parts:
+            return "\n\n".join(text_parts)
+
+    return None
+
+
+def build_invalid_tool_call_fallback(tool_name: str) -> str:
+    return (
+        f"O modelo tentou chamar a tool '{tool_name}', "
+        "mas essa tool nao esta disponivel ou o payload nao e executavel neste momento."
+    )
+
+
 async def execute_chat_with_mcp_tools(
     messages: list[dict[str, str]],
     mcp_tools: list[dict] | None = None,
@@ -109,12 +157,38 @@ async def execute_chat_with_mcp_tools(
 
     conversation = [{"role": "system", "content": ollama_service.build_chat_system_message(tools_prompt)}]
     conversation.extend(messages)
+    last_successful_tool_result: tuple[str, object] | None = None
 
     for _ in range(settings.max_tool_rounds):
-        reply = await ollama_service.chat(conversation, log_context=log_context)
+        try:
+            reply = await ollama_service.chat(conversation, log_context=log_context)
+        except OllamaServiceError as exc:
+            if (
+                last_successful_tool_result is not None
+                and "nao devolveu conteudo para a resposta" in str(exc).lower()
+            ):
+                tool_name, tool_result = last_successful_tool_result
+                return build_tool_result_fallback(tool_name, tool_result)
+            raise
+        raw_tool_call = extract_tool_call_response(reply)
         tool_call = parse_tool_call_response(reply, allowed_tools)
 
         if tool_call is None:
+            if raw_tool_call is not None:
+                request_id = (
+                    str(log_context["request_id"])
+                    if log_context and log_context.get("request_id")
+                    else None
+                )
+                if request_id is not None:
+                    add_tool_call_trace(
+                        request_id,
+                        tool_name=raw_tool_call["tool"],
+                        tool_input=raw_tool_call["arguments"],
+                        status="error",
+                        error_detail="tool_call_not_executable",
+                    )
+                return build_invalid_tool_call_fallback(raw_tool_call["tool"])
             return reply
 
         request_id = str(log_context["request_id"]) if log_context and log_context.get("request_id") else None
@@ -130,6 +204,7 @@ async def execute_chat_with_mcp_tools(
 
         try:
             tool_result = await mcp_service.call_tool(tool_call["tool"], tool_call["arguments"])
+            last_successful_tool_result = (tool_call["tool"], tool_result)
             if request_id is not None:
                 add_tool_call_trace(
                     request_id,
