@@ -34,6 +34,9 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
 
     sections: list[str] = [
         "Ferramentas MCP disponiveis:",
+        "Usa apenas tools cujos nomes aparecam exatamente na lista abaixo.",
+        "Nunca inventes nomes de tools, aliases ou nomes mais descritivos do que os fornecidos pelo servidor MCP.",
+        "Se nao existir uma tool adequada na lista, nao devolvas tool_call inventado; responde normalmente com as limitacoes.",
         "Usa uma tool MCP quando o pedido exigir dados reais, verificacao, inspecao, listagem ou consulta que a tool possa fornecer.",
         "Se o utilizador pedir explicitamente para usar uma tool, a tua primeira resposta deve ser um tool_call valido sempre que exista uma tool adequada.",
         "Nao respondas com conhecimento geral nem inventes resultados se uma tool MCP puder obter a informacao pedida.",

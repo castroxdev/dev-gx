@@ -187,7 +187,11 @@ class OllamaService:
             message_count=len(trimmed_messages),
         )
         started_at = perf_counter()
-        data = await self._post_json(self.chat_url, payload)
+        data = await self._post_json(
+            self.chat_url,
+            payload,
+            timeout=self._build_chat_timeout(),
+        )
         elapsed_ms = (perf_counter() - started_at) * 1000
         llm_metrics = self._extract_llm_metrics(data)
         message = data.get("message", {})
@@ -274,7 +278,7 @@ class OllamaService:
         llm_metrics: dict[str, int | float] = {}
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self._build_chat_timeout()) as client:
                 async with client.stream("POST", self.chat_url, json=payload) as response:
                     response.raise_for_status()
 
@@ -419,6 +423,15 @@ class OllamaService:
             return fenced_match.group(1).strip()
         return text.strip()
 
+    def _build_chat_timeout(self) -> httpx.Timeout:
+        read_timeout = max(float(self.timeout), 300.0)
+        return httpx.Timeout(
+            connect=min(float(self.timeout), 30.0),
+            read=read_timeout,
+            write=min(float(self.timeout), 30.0),
+            pool=min(float(self.timeout), 30.0),
+        )
+
     def _extract_llm_metrics(self, data: dict) -> dict[str, int | float]:
         metrics: dict[str, int | float] = {}
 
@@ -467,9 +480,14 @@ class OllamaService:
             **data,
         )
 
-    async def _post_json(self, url: str, payload: dict) -> dict:
+    async def _post_json(
+        self,
+        url: str,
+        payload: dict,
+        timeout: httpx.Timeout | float | None = None,
+    ) -> dict:
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
                 return response.json()
