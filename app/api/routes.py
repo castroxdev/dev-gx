@@ -182,6 +182,48 @@ def extract_user_friendly_tool_text(tool_result: object) -> str | None:
             sections.append(f"```sql\n{sql}\n```")
             return "\n\n".join(section for section in sections if section.strip()).strip()
 
+        endpoints = tool_result.get("endpoints")
+        if isinstance(endpoints, list) and endpoints:
+            sections = []
+
+            api_summary = str(tool_result.get("api_summary", "")).strip()
+            if api_summary:
+                sections.append(f"Resumo da API:\n{api_summary}")
+
+            assumptions = tool_result.get("assumptions")
+            if isinstance(assumptions, list):
+                normalized_assumptions = [str(item).strip() for item in assumptions if str(item).strip()]
+                if normalized_assumptions:
+                    sections.append("Suposicoes assumidas:\n- " + "\n- ".join(normalized_assumptions))
+
+            suggested_base_path = str(tool_result.get("suggested_base_path", "")).strip()
+            if suggested_base_path:
+                sections.append(f"Base path sugerido:\n{suggested_base_path}")
+
+            endpoint_lines: list[str] = []
+            for endpoint in endpoints:
+                if not isinstance(endpoint, dict):
+                    continue
+                method = str(endpoint.get("method", "")).strip().upper()
+                path = str(endpoint.get("path", "")).strip()
+                purpose = str(endpoint.get("purpose", "")).strip()
+                if not method or not path or not purpose:
+                    continue
+
+                endpoint_lines.append(f"- {method} {path}: {purpose}")
+
+                request_text = str(endpoint.get("request", "")).strip()
+                response_text = str(endpoint.get("response", "")).strip()
+                if request_text:
+                    endpoint_lines.append(f"  request: {request_text}")
+                if response_text:
+                    endpoint_lines.append(f"  response: {response_text}")
+
+            if endpoint_lines:
+                sections.append("Endpoints sugeridos:\n" + "\n".join(endpoint_lines))
+
+            return "\n\n".join(section for section in sections if section.strip()).strip()
+
     if isinstance(tool_result, list):
         text_parts: list[str] = []
         for item in tool_result:
