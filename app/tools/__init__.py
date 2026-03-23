@@ -59,6 +59,10 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
                 sections.append(
                     "  usa_para: pedidos de plano MVP, fases de implementacao, escopo inicial, entidades, base de dados e API de um produto."
                 )
+            if name == "generate_sql_schema":
+                sections.append(
+                    "  usa_para: pedidos de schema SQL inicial, tabelas, relacoes, chaves, indices e estrutura de base de dados do MVP."
+                )
             if input_schema:
                 sections.append(f"  input_schema: {json.dumps(input_schema, ensure_ascii=True)}")
 
