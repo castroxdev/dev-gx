@@ -3,7 +3,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router as api_router
 from app.config import STATIC_DIR, settings
+from app.logging_config import setup_logging
 from app.web.routes import router as web_router
+
+
+setup_logging()
 
 
 def create_app() -> FastAPI:
