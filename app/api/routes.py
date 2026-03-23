@@ -161,6 +161,27 @@ def extract_user_friendly_tool_text(tool_result: object) -> str | None:
             sections.append(mvp_plan)
             return "\n\n".join(section for section in sections if section.strip()).strip()
 
+        sql = str(tool_result.get("sql", "")).strip()
+        if sql:
+            sections = []
+
+            schema_summary = str(tool_result.get("schema_summary", "")).strip()
+            if schema_summary:
+                sections.append(f"Resumo do schema:\n{schema_summary}")
+
+            assumptions = tool_result.get("assumptions")
+            if isinstance(assumptions, list):
+                normalized_assumptions = [str(item).strip() for item in assumptions if str(item).strip()]
+                if normalized_assumptions:
+                    sections.append("Suposicoes assumidas:\n- " + "\n- ".join(normalized_assumptions))
+
+            suggested_file_name = str(tool_result.get("suggested_file_name", "")).strip()
+            if suggested_file_name:
+                sections.append(f"Nome sugerido para o ficheiro:\n{suggested_file_name}.sql")
+
+            sections.append(f"```sql\n{sql}\n```")
+            return "\n\n".join(section for section in sections if section.strip()).strip()
+
     if isinstance(tool_result, list):
         text_parts: list[str] = []
         for item in tool_result:
