@@ -35,6 +35,7 @@ from app.services.tool_runtime import (
 )
 from app.trace_store import trace_store
 from app.tools import build_tools_prompt_from_mcp
+from app.tools.domain_tools import execute_domain_tool, is_domain_tool, list_domain_mcp_tools
 
 
 router = APIRouter(prefix="/api", tags=["planner"])
@@ -44,11 +45,32 @@ mcp_service = McpService()
 logger = logging.getLogger("devgx.api.chat")
 
 
-async def load_mcp_tools() -> list[dict]:
+async def load_available_tools() -> list[dict]:
+    local_tools = list_domain_mcp_tools()
+
     try:
-        return await mcp_service.list_tools()
+        remote_tools = await mcp_service.list_tools()
     except McpServiceError:
-        return []
+        remote_tools = []
+
+    merged_tools: list[dict] = []
+    seen_names: set[str] = set()
+
+    for tool in [*local_tools, *remote_tools]:
+        name = str(tool.get("name", "")).strip()
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+        merged_tools.append(tool)
+
+    return merged_tools
+
+
+async def execute_tool_by_name(tool_name: str, arguments: dict[str, object]) -> object:
+    if is_domain_tool(tool_name):
+        return await execute_domain_tool(tool_name, arguments, ollama_service)
+
+    return await mcp_service.call_tool(tool_name, arguments)
 
 
 def build_chat_log_context(payload: ChatRequest) -> dict[str, str | int | None]:
@@ -151,7 +173,7 @@ async def execute_chat_with_mcp_tools(
     mcp_tools: list[dict] | None = None,
     log_context: dict[str, str | int | None] | None = None,
 ) -> str:
-    mcp_tools = mcp_tools or await load_mcp_tools()
+    mcp_tools = mcp_tools or await load_available_tools()
     tools_prompt = build_tools_prompt_from_mcp(mcp_tools)
     allowed_tools = {str(tool.get("name", "")).strip() for tool in mcp_tools if tool.get("name")}
 
@@ -203,7 +225,7 @@ async def execute_chat_with_mcp_tools(
         conversation.append({"role": "assistant", "content": reply})
 
         try:
-            tool_result = await mcp_service.call_tool(tool_call["tool"], tool_call["arguments"])
+            tool_result = await execute_tool_by_name(tool_call["tool"], tool_call["arguments"])
             last_successful_tool_result = (tool_call["tool"], tool_result)
             if request_id is not None:
                 add_tool_call_trace(
@@ -214,7 +236,7 @@ async def execute_chat_with_mcp_tools(
                     status="completed",
                 )
             tool_result_message = format_tool_result(tool_call["tool"], tool_result)
-        except McpServiceError as exc:
+        except (McpServiceError, ValueError) as exc:
             if request_id is not None:
                 add_tool_call_trace(
                     request_id,
@@ -235,7 +257,7 @@ async def execute_chat_with_mcp_tools(
 
 
 async def execute_plan_with_mcp_tools(idea: str) -> str:
-    mcp_tools = await load_mcp_tools()
+    mcp_tools = await load_available_tools()
     tools_prompt = build_tools_prompt_from_mcp(mcp_tools)
     allowed_tools = {str(tool.get("name", "")).strip() for tool in mcp_tools if tool.get("name")}
 
@@ -257,9 +279,9 @@ async def execute_plan_with_mcp_tools(idea: str) -> str:
             return latest_assistant
 
         try:
-            tool_result = await mcp_service.call_tool(tool_call["tool"], tool_call["arguments"])
+            tool_result = await execute_tool_by_name(tool_call["tool"], tool_call["arguments"])
             tool_result_message = format_tool_result(tool_call["tool"], tool_result)
-        except McpServiceError as exc:
+        except (McpServiceError, ValueError) as exc:
             tool_result_message = format_tool_result(tool_call["tool"], {"error": str(exc)})
 
         conversation.append({"role": "system", "content": tool_result_message})
@@ -685,7 +707,7 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
         final_reply: str | None = None
         try:
             raw_messages = [message.model_dump() for message in payload.messages]
-            mcp_tools = await load_mcp_tools()
+            mcp_tools = await load_available_tools()
 
             if mcp_tools:
                 reply = await execute_chat_with_mcp_tools(
