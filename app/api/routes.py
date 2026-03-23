@@ -104,12 +104,39 @@ def add_tool_call_trace(
 
 
 def build_tool_result_fallback(tool_name: str, tool_result: object) -> str:
+    rendered_text = extract_user_friendly_tool_text(tool_result)
+    if rendered_text is not None:
+        return rendered_text
+
     if isinstance(tool_result, str):
         rendered_result = tool_result.strip() or "<sem conteudo>"
     else:
         rendered_result = json.dumps(tool_result, ensure_ascii=False, indent=2)
 
     return f"Resultado da tool '{tool_name}':\n{rendered_result}"
+
+
+def extract_user_friendly_tool_text(tool_result: object) -> str | None:
+    if isinstance(tool_result, str):
+        text = tool_result.strip()
+        return text or None
+
+    if isinstance(tool_result, list):
+        text_parts: list[str] = []
+        for item in tool_result:
+            if not isinstance(item, dict):
+                return None
+            if str(item.get("type", "")).strip() != "text":
+                return None
+
+            text = str(item.get("text", "")).strip()
+            if text:
+                text_parts.append(text)
+
+        if text_parts:
+            return "\n\n".join(text_parts)
+
+    return None
 
 
 def build_invalid_tool_call_fallback(tool_name: str) -> str:
