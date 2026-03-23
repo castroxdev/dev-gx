@@ -1,16 +1,23 @@
-﻿import json
+import json
+import logging
 import re
+from time import perf_counter
 
 import httpx
 
 from app.config import GENERATED_DIR, settings
-from app.prompts.policy import build_scope_classifier_prompt, parse_scope_classifier_response
+from app.logging_utils import format_log_event
 from app.prompts.planner_prompt import build_planner_prompt
+from app.prompts.policy import build_scope_classifier_prompt, parse_scope_classifier_response
 from app.prompts.sql_prompt import build_sql_schema_prompt
+from app.trace_store import trace_store
 
 
 class OllamaServiceError(Exception):
     pass
+
+
+logger = logging.getLogger("devgx.ollama")
 
 
 class OllamaService:
@@ -138,7 +145,6 @@ class OllamaService:
         parsed = parse_scope_classifier_response(generated_text)
 
         if parsed is None:
-            # Fail open to avoid blocking valid software requests if classification is malformed.
             return {
                 "decision": "allow",
                 "category": "software",
@@ -148,7 +154,11 @@ class OllamaService:
 
         return parsed
 
-    async def chat(self, messages: list[dict[str, str]]) -> str:
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        log_context: dict[str, str | int | None] | None = None,
+    ) -> str:
         trimmed_messages = self._trim_messages(messages)
         payload = {
             "model": self.model,
@@ -159,16 +169,75 @@ class OllamaService:
             },
         }
 
+        logger.info(
+            format_log_event(
+                request_id=self._context_value(log_context, "request_id"),
+                endpoint=self._context_value(log_context, "endpoint"),
+                conversation_id=self._context_value(log_context, "conversation_id"),
+                model=self.model,
+                stage="ollama_call_started",
+                status="started",
+                message_count=len(trimmed_messages),
+            )
+        )
+        self._add_trace_step(
+            log_context,
+            stage="ollama_request_started",
+            status="started",
+            message_count=len(trimmed_messages),
+        )
+        started_at = perf_counter()
         data = await self._post_json(self.chat_url, payload)
+        elapsed_ms = (perf_counter() - started_at) * 1000
         message = data.get("message", {})
         content = message.get("content", "").strip()
 
         if not content:
+            self._add_trace_step(
+                log_context,
+                stage="ollama_response_received",
+                status="empty",
+                duration_ms=elapsed_ms,
+            )
+            logger.error(
+                format_log_event(
+                    request_id=self._context_value(log_context, "request_id"),
+                    endpoint=self._context_value(log_context, "endpoint"),
+                    conversation_id=self._context_value(log_context, "conversation_id"),
+                    model=self.model,
+                    stage="ollama_response_received",
+                    duration_ms=elapsed_ms,
+                    status="empty",
+                )
+            )
             raise OllamaServiceError("O Ollama nao devolveu conteudo para a resposta.")
 
+        self._add_trace_step(
+            log_context,
+            stage="ollama_response_received",
+            status="completed",
+            duration_ms=elapsed_ms,
+            reply_chars=len(content),
+        )
+        logger.info(
+            format_log_event(
+                request_id=self._context_value(log_context, "request_id"),
+                endpoint=self._context_value(log_context, "endpoint"),
+                conversation_id=self._context_value(log_context, "conversation_id"),
+                model=self.model,
+                stage="ollama_response_received",
+                duration_ms=elapsed_ms,
+                status="completed",
+                reply_chars=len(content),
+            )
+        )
         return content
 
-    async def chat_stream(self, messages: list[dict[str, str]]):
+    async def chat_stream(
+        self,
+        messages: list[dict[str, str]],
+        log_context: dict[str, str | int | None] | None = None,
+    ):
         trimmed_messages = self._trim_messages(messages)
         payload = {
             "model": self.model,
@@ -178,6 +247,25 @@ class OllamaService:
                 "num_predict": self.num_predict,
             },
         }
+
+        logger.info(
+            format_log_event(
+                request_id=self._context_value(log_context, "request_id"),
+                endpoint=self._context_value(log_context, "endpoint"),
+                conversation_id=self._context_value(log_context, "conversation_id"),
+                model=self.model,
+                stage="ollama_call_started",
+                status="started",
+                message_count=len(trimmed_messages),
+            )
+        )
+        self._add_trace_step(
+            log_context,
+            stage="ollama_request_started",
+            status="started",
+            message_count=len(trimmed_messages),
+        )
+        started_at = perf_counter()
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -199,10 +287,65 @@ class OllamaService:
                         content = str(message.get("content", ""))
                         if content:
                             yield content
+
+            elapsed_ms = (perf_counter() - started_at) * 1000
+            self._add_trace_step(
+                log_context,
+                stage="ollama_response_received",
+                status="completed",
+                duration_ms=elapsed_ms,
+            )
+            logger.info(
+                format_log_event(
+                    request_id=self._context_value(log_context, "request_id"),
+                    endpoint=self._context_value(log_context, "endpoint"),
+                    conversation_id=self._context_value(log_context, "conversation_id"),
+                    model=self.model,
+                    stage="ollama_response_received",
+                    duration_ms=elapsed_ms,
+                    status="completed",
+                )
+            )
         except httpx.RequestError as exc:
+            logger.exception(
+                format_log_event(
+                    request_id=self._context_value(log_context, "request_id"),
+                    endpoint=self._context_value(log_context, "endpoint"),
+                    conversation_id=self._context_value(log_context, "conversation_id"),
+                    model=self.model,
+                    stage="ollama_call_error",
+                    status="error",
+                    error_type=type(exc).__name__,
+                )
+            )
+            self._add_trace_step(
+                log_context,
+                stage="error",
+                status="error",
+                error_type=type(exc).__name__,
+            )
             status = await self.get_status()
             raise OllamaServiceError(str(status["detail"])) from exc
         except httpx.HTTPStatusError as exc:
+            logger.exception(
+                format_log_event(
+                    request_id=self._context_value(log_context, "request_id"),
+                    endpoint=self._context_value(log_context, "endpoint"),
+                    conversation_id=self._context_value(log_context, "conversation_id"),
+                    model=self.model,
+                    stage="ollama_call_error",
+                    status="error",
+                    error_type=type(exc).__name__,
+                    http_status=exc.response.status_code,
+                )
+            )
+            self._add_trace_step(
+                log_context,
+                stage="error",
+                status="error",
+                error_type=type(exc).__name__,
+                http_status=exc.response.status_code,
+            )
             status_code = exc.response.status_code
             if status_code == 404:
                 raise OllamaServiceError(
@@ -263,6 +406,37 @@ class OllamaService:
         if fenced_match:
             return fenced_match.group(1).strip()
         return text.strip()
+
+    def _context_value(
+        self,
+        log_context: dict[str, str | int | None] | None,
+        key: str,
+    ) -> str | None:
+        if not log_context:
+            return None
+        value = log_context.get(key)
+        return None if value is None else str(value)
+
+    def _add_trace_step(
+        self,
+        log_context: dict[str, str | int | None] | None,
+        *,
+        stage: str,
+        status: str,
+        duration_ms: float | None = None,
+        **data: str | int | float | None,
+    ) -> None:
+        request_id = self._context_value(log_context, "request_id")
+        if not request_id:
+            return
+
+        trace_store.add_step(
+            request_id,
+            stage=stage,
+            status=status,
+            duration_ms=duration_ms,
+            **data,
+        )
 
     async def _post_json(self, url: str, payload: dict) -> dict:
         try:

@@ -36,6 +36,7 @@ const CONVERSATION_STORAGE_KEY = "devgx.currentConversationId";
 
 let messages = [];
 let isLoading = false;
+let isSending = false;
 let currentAbortController = null;
 let stopRequested = false;
 let currentConversationId = null;
@@ -501,30 +502,32 @@ function stopStreaming() {
 }
 
 async function sendMessage() {
-  if (isLoading) {
+  if (isLoading || isSending) {
     return;
   }
-
-  await ensureConversationReady();
 
   const content = inputEl.value.trim();
   if (!content) {
     return;
   }
 
-  const userMessage = { role: "user", content };
-  const shouldOfferSql = isSqlIntent(content);
-
-  messages.push(userMessage);
-  renderMessage("user", content);
-  inputEl.value = "";
-  stopRequested = false;
-  setLoading(true);
-
-  const assistantBubble = createMessageElement("assistant", "");
-  let assistantText = "";
+  isSending = true;
 
   try {
+    await ensureConversationReady();
+
+    const userMessage = { role: "user", content };
+    const shouldOfferSql = isSqlIntent(content);
+
+    messages.push(userMessage);
+    renderMessage("user", content);
+    inputEl.value = "";
+    stopRequested = false;
+    setLoading(true);
+
+    const assistantBubble = createMessageElement("assistant", "");
+    let assistantText = "";
+
     currentAbortController = new AbortController();
 
     const response = await fetch("/api/chat/stream", {
@@ -630,6 +633,7 @@ async function sendMessage() {
     currentAbortController = null;
     stopRequested = false;
     setLoading(false);
+    isSending = false;
     inputEl.focus();
     await loadOllamaStatus();
   }
@@ -664,4 +668,7 @@ ensureConversationReady().catch((error) => {
   statusTextEl.textContent = `Falha ao carregar memória: ${error.message}`;
 });
 loadOllamaStatus();
+
+
+
 

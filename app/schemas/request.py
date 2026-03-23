@@ -20,6 +20,10 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    conversation_id: str | None = Field(
+        default=None,
+        description="Identificador opcional da conversa atual.",
+    )
     messages: list[ChatMessage] = Field(
         ...,
         min_length=1,
