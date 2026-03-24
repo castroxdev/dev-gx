@@ -557,6 +557,21 @@ function getExecutionStatusLabel(status) {
   return "Idle";
 }
 
+function resolveExecutionItemStatus(status, traceStatus) {
+  const itemStatusClass = getExecutionStatusClass(status);
+  const traceStatusClass = getExecutionStatusClass(traceStatus);
+
+  if (itemStatusClass === "running" && traceStatusClass === "done") {
+    return "completed";
+  }
+
+  if (itemStatusClass === "running" && traceStatusClass === "error") {
+    return "error";
+  }
+
+  return status;
+}
+
 function formatDuration(ms) {
   if (typeof ms !== "number" || Number.isNaN(ms) || ms < 0) {
     return "";
@@ -737,7 +752,8 @@ function renderExecutionFlow(trace) {
   }
 
   executionFlowListEl.innerHTML = items.map((item) => {
-    const itemStatusClass = getExecutionStatusClass(item.status);
+    const effectiveItemStatus = resolveExecutionItemStatus(item.status, trace?.status);
+    const itemStatusClass = getExecutionStatusClass(effectiveItemStatus);
     const detail = item.detail
       ? `<div class="execution-step-detail">${escapeHtml(item.detail)}</div>`
       : "";
@@ -746,7 +762,7 @@ function renderExecutionFlow(trace) {
       <article class="execution-step ${itemStatusClass}">
         <div class="execution-step-head">
           <div class="execution-step-title">${escapeHtml(item.label)}</div>
-          <div class="execution-step-pill ${itemStatusClass}">${escapeHtml(getExecutionStatusLabel(item.status))}</div>
+          <div class="execution-step-pill ${itemStatusClass}">${escapeHtml(getExecutionStatusLabel(effectiveItemStatus))}</div>
         </div>
         ${detail}
       </article>
