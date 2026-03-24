@@ -203,3 +203,4 @@ build/
 app/generated/
 app/data/
 app/ui/
+app/data/chat_memory.db

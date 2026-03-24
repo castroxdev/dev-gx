@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -17,15 +17,15 @@ class DomainToolDefinition:
 generate_mvp_plan_tool = DomainToolDefinition(
     name="generate_mvp_plan",
     description=(
-        "Gera um plano de MVP orientado ao dominio do produto com escopo, entidades, "
-        "base de dados, API e passos de implementacao."
+        "Gera um plano de MVP orientado ao domínio do produto com escopo, entidades, "
+        "base de dados, API e passos de implementação."
     ),
     input_schema={
         "type": "object",
         "properties": {
             "project_brief": {
                 "type": "string",
-                "description": "Descricao principal do produto, problema e objetivo do MVP.",
+                "description": "Descrição principal do produto, problema e objetivo do MVP.",
             },
             "target_users": {
                 "type": "array",
@@ -35,12 +35,12 @@ generate_mvp_plan_tool = DomainToolDefinition(
             "core_features": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Funcionalidades essenciais que precisam entrar nesta primeira versao.",
+                "description": "Funcionalidades essenciais que precisam entrar nesta primeira versão.",
             },
             "constraints": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Restricoes tecnicas, operacionais ou de prazo relevantes.",
+                "description": "Restrições técnicas, operacionais ou de prazo relevantes.",
             },
         },
         "required": ["project_brief"],
@@ -64,7 +64,7 @@ generate_mvp_plan_tool = DomainToolDefinition(
 generate_sql_schema_tool = DomainToolDefinition(
     name="generate_sql_schema",
     description=(
-        "Gera um esquema SQL inicial para o MVP com tabelas, relacoes, chaves e indices "
+        "Gera um esquema SQL inicial para o MVP com tabelas, relações, chaves e índices "
         "essenciais."
     ),
     input_schema={
@@ -72,12 +72,12 @@ generate_sql_schema_tool = DomainToolDefinition(
         "properties": {
             "project_brief": {
                 "type": "string",
-                "description": "Descricao principal do produto e do problema a modelar.",
+                "description": "Descrição principal do produto e do problema a modelar.",
             },
             "entities": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Entidades de dominio que devem aparecer no schema inicial.",
+                "description": "Entidades de domínio que devem aparecer no esquema SQL inicial.",
             },
             "core_features": {
                 "type": "array",
@@ -87,7 +87,7 @@ generate_sql_schema_tool = DomainToolDefinition(
             "constraints": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Restricoes tecnicas ou de negocio relevantes para o schema.",
+                "description": "Restrições técnicas ou de negócio relevantes para o esquema SQL.",
             },
             "database_engine": {
                 "type": "string",
@@ -116,15 +116,15 @@ generate_sql_schema_tool = DomainToolDefinition(
 suggest_api_endpoints_tool = DomainToolDefinition(
     name="suggest_api_endpoints",
     description=(
-        "Sugere endpoints API iniciais para o MVP com metodos, paths, objetivo e contratos "
-        "basicos de request e response."
+        "Sugere endpoints API iniciais para o MVP com métodos, paths, objetivo e contratos "
+        "básicos de request e response."
     ),
     input_schema={
         "type": "object",
         "properties": {
             "project_brief": {
                 "type": "string",
-                "description": "Descricao principal do produto e do problema a servir pela API.",
+                "description": "Descrição principal do produto e do problema a servir pela API.",
             },
             "core_entities": {
                 "type": "array",
@@ -138,12 +138,12 @@ suggest_api_endpoints_tool = DomainToolDefinition(
             },
             "auth_style": {
                 "type": "string",
-                "description": "Estilo de autenticacao esperado, como bearer, session ou public.",
+                "description": "Estilo de autenticação esperado, como bearer, session ou public.",
             },
             "constraints": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Restricoes tecnicas ou de negocio relevantes para a API.",
+                "description": "Restrições técnicas ou de negócio relevantes para a API.",
             },
         },
         "required": ["project_brief"],
@@ -217,7 +217,7 @@ async def execute_domain_tool(
     if tool_name == suggest_api_endpoints_tool.name:
         return await _execute_suggest_api_endpoints(arguments, ollama_service)
 
-    raise ValueError(f"Tool de dominio desconhecida: {tool_name}")
+    raise ValueError(f"Tool de domínio desconhecida: {tool_name}")
 
 
 async def _execute_generate_mvp_plan(
@@ -226,7 +226,7 @@ async def _execute_generate_mvp_plan(
 ) -> dict[str, Any]:
     project_brief = str(arguments.get("project_brief", "")).strip()
     if len(project_brief) < 5:
-        raise ValueError("A tool generate_mvp_plan exige um campo project_brief valido.")
+        raise ValueError("A tool generate_mvp_plan exige um campo project_brief válido.")
 
     target_users = _normalize_string_list(arguments.get("target_users"))
     core_features = _normalize_string_list(arguments.get("core_features"))
@@ -257,7 +257,7 @@ async def _execute_generate_sql_schema(
 ) -> dict[str, Any]:
     project_brief = str(arguments.get("project_brief", "")).strip()
     if len(project_brief) < 5:
-        raise ValueError("A tool generate_sql_schema exige um campo project_brief valido.")
+        raise ValueError("A tool generate_sql_schema exige um campo project_brief válido.")
 
     entities = _normalize_string_list(arguments.get("entities"))
     core_features = _normalize_string_list(arguments.get("core_features"))
@@ -297,7 +297,7 @@ async def _execute_suggest_api_endpoints(
 ) -> dict[str, Any]:
     project_brief = str(arguments.get("project_brief", "")).strip()
     if len(project_brief) < 5:
-        raise ValueError("A tool suggest_api_endpoints exige um campo project_brief valido.")
+        raise ValueError("A tool suggest_api_endpoints exige um campo project_brief válido.")
 
     core_entities = _normalize_string_list(arguments.get("core_entities"))
     core_features = _normalize_string_list(arguments.get("core_features"))
@@ -316,7 +316,7 @@ async def _execute_suggest_api_endpoints(
 
     endpoints = _normalize_endpoints(parsed.get("endpoints"))
     if not endpoints:
-        raise ValueError("A tool suggest_api_endpoints nao conseguiu gerar endpoints validos.")
+        raise ValueError("A tool suggest_api_endpoints não conseguiu gerar endpoints válidos.")
 
     response: dict[str, Any] = {
         "api_summary": str(parsed.get("api_summary", "")).strip() or project_brief,
@@ -362,7 +362,7 @@ def _build_plan_prompt(
     if core_features:
         sections.append("Funcionalidades core do MVP:\n- " + "\n- ".join(core_features))
     if constraints:
-        sections.append("Restricoes:\n- " + "\n- ".join(constraints))
+        sections.append("Restrições:\n- " + "\n- ".join(constraints))
 
     return "\n\n".join(sections).strip()
 
@@ -382,7 +382,7 @@ def _build_sql_schema_prompt(
     if core_features:
         sections.append("Funcionalidades core:\n- " + "\n- ".join(core_features))
     if constraints:
-        sections.append("Restricoes:\n- " + "\n- ".join(constraints))
+        sections.append("Restrições:\n- " + "\n- ".join(constraints))
     if database_engine:
         sections.append(f"Motor de base de dados preferido:\n{database_engine}")
 
@@ -404,12 +404,12 @@ def _build_api_endpoints_prompt(
     if core_features:
         sections.append("Funcionalidades core:\n- " + "\n- ".join(core_features))
     if auth_style:
-        sections.append(f"Estilo de autenticacao:\n{auth_style}")
+        sections.append(f"Estilo de autenticação:\n{auth_style}")
     if constraints:
-        sections.append("Restricoes:\n- " + "\n- ".join(constraints))
+        sections.append("Restrições:\n- " + "\n- ".join(constraints))
 
     instructions = """
-Devolve apenas JSON valido com esta estrutura:
+Devolve apenas JSON válido com esta estrutura:
 {
   "api_summary": "string",
   "suggested_base_path": "string opcional",
@@ -427,9 +427,9 @@ Devolve apenas JSON valido com esta estrutura:
 Regras:
 - Sugere apenas endpoints essenciais para um MVP.
 - Prefere REST simples.
-- Usa paths consistentes e previsiveis.
+- Usa paths consistentes e previsíveis.
 - Inclui request e response quando fizer sentido.
-- Nao uses markdown nem texto fora do JSON.
+- Não uses markdown nem texto fora do JSON.
 """.strip()
 
     return [
@@ -447,11 +447,11 @@ def _build_mvp_assumptions(
     assumptions: list[str] = []
 
     if not target_users:
-        assumptions.append("Os utilizadores alvo serao assumidos a partir do briefing principal.")
+        assumptions.append("Os utilizadores-alvo serão assumidos a partir do briefing principal.")
     if not core_features:
         assumptions.append("O plano vai priorizar apenas o fluxo principal do MVP descrito no briefing.")
     if not constraints:
-        assumptions.append("Sem restricoes explicitas, o plano assume um MVP web com stack simples e iteravel.")
+        assumptions.append("Sem restrições explícitas, o plano assume um MVP web com stack simples e iterável.")
 
     return assumptions
 
@@ -466,13 +466,13 @@ def _build_sql_assumptions(
     assumptions: list[str] = []
 
     if not entities:
-        assumptions.append("As entidades principais serao inferidas a partir do briefing e das funcionalidades descritas.")
+        assumptions.append("As entidades principais serão inferidas a partir do briefing e das funcionalidades descritas.")
     if not core_features:
         assumptions.append("O schema vai cobrir apenas o fluxo principal do MVP descrito no briefing.")
     if not constraints:
-        assumptions.append("Sem restricoes explicitas, o schema assume relacoes simples, chaves primarias e indices essenciais.")
+        assumptions.append("Sem restrições explícitas, o esquema assume relações simples, chaves primárias e índices essenciais.")
     if not database_engine:
-        assumptions.append("Sem motor indicado, o schema assume SQL relacional com sintaxe compativel com PostgreSQL.")
+        assumptions.append("Sem motor indicado, o esquema assume SQL relacional com sintaxe compatível com PostgreSQL.")
 
     return assumptions
 
@@ -487,13 +487,13 @@ def _build_api_assumptions(
     assumptions: list[str] = []
 
     if not core_entities:
-        assumptions.append("As entidades principais da API serao inferidas a partir do briefing e das funcionalidades descritas.")
+        assumptions.append("As entidades principais da API serão inferidas a partir do briefing e das funcionalidades descritas.")
     if not core_features:
-        assumptions.append("Os endpoints vao cobrir apenas os fluxos essenciais do MVP descrito no briefing.")
+        assumptions.append("Os endpoints vão cobrir apenas os fluxos essenciais do MVP descrito no briefing.")
     if not auth_style:
-        assumptions.append("Sem estilo de autenticacao indicado, a sugestao assume autenticacao bearer simples apenas quando fizer sentido.")
+        assumptions.append("Sem estilo de autenticação indicado, a sugestão assume autenticação bearer simples apenas quando fizer sentido.")
     if not constraints:
-        assumptions.append("Sem restricoes explicitas, a API assume REST simples com payloads curtos e validacoes basicas.")
+        assumptions.append("Sem restrições explícitas, a API assume REST simples com payloads curtos e validações básicas.")
 
     return assumptions
 
@@ -522,10 +522,10 @@ def _parse_api_endpoints_response(raw_response: str) -> dict[str, Any]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError("A tool suggest_api_endpoints recebeu JSON invalido do modelo.") from exc
+        raise ValueError("A tool suggest_api_endpoints recebeu JSON inválido do modelo.") from exc
 
     if not isinstance(parsed, dict):
-        raise ValueError("A tool suggest_api_endpoints recebeu um payload invalido do modelo.")
+        raise ValueError("A tool suggest_api_endpoints recebeu um payload inválido do modelo.")
 
     return parsed
 
@@ -561,3 +561,4 @@ def _normalize_endpoints(raw_value: Any) -> list[dict[str, str]]:
         normalized.append(endpoint)
 
     return normalized
+

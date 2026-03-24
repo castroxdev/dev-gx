@@ -1,4 +1,4 @@
-﻿const messagesEl = document.getElementById("messages");
+const messagesEl = document.getElementById("messages");
 const statusTextEl = document.getElementById("statusText");
 const ollamaStatusEl = document.getElementById("ollamaStatus");
 const ollamaDetailEl = document.getElementById("ollamaDetail");
@@ -9,6 +9,9 @@ const stopButtonEl = document.getElementById("stopButton");
 const clearButtonEl = document.getElementById("clearButton");
 const newConversationSidebarButtonEl = document.getElementById("newConversationSidebarButton");
 const conversationListEl = document.getElementById("conversationList");
+const executionFlowListEl = document.getElementById("executionFlowList");
+const executionFlowStatusEl = document.getElementById("executionFlowStatus");
+const executionFlowSubtitleEl = document.getElementById("executionFlowSubtitle");
 const promptButtons = document.querySelectorAll("[data-prompt]");
 
 const SQL_TERMS = [
@@ -32,6 +35,24 @@ const SQL_TERMS = [
   "relaciones"
 ];
 
+const TOOL_PROGRESS_MESSAGES = [
+  "A gerar plano MVP...",
+  "A criar esquema SQL...",
+  "A sugerir endpoints API..."
+];
+
+const TOOL_PROGRESS_DETAILS = {
+  "A gerar plano MVP...": {
+    label: "Plano MVP"
+  },
+  "A criar esquema SQL...": {
+    label: "Esquema SQL"
+  },
+  "A sugerir endpoints API...": {
+    label: "Endpoints API"
+  }
+};
+
 const CONVERSATION_STORAGE_KEY = "devgx.currentConversationId";
 
 let messages = [];
@@ -42,6 +63,8 @@ let stopRequested = false;
 let currentConversationId = null;
 let conversationBootstrapPromise = null;
 let conversationSummaries = [];
+let currentTraceRequestId = null;
+let currentTracePollToken = 0;
 
 function escapeHtml(text) {
   return text
@@ -77,10 +100,150 @@ function extractSqlBlock(text) {
   return null;
 }
 
+function formatInlineAssistantText(text) {
+  return escapeHtml(text).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function renderStructuredAssistantText(text) {
+  const lines = (text || "").split("\n");
+  const html = [];
+  let paragraph = [];
+  let listItems = [];
+  let endpointItems = [];
+  let currentEndpoint = null;
+
+  function flushParagraph() {
+    if (!paragraph.length) {
+      return;
+    }
+
+    const content = paragraph.join("<br>");
+    html.push(`<p class="assistant-paragraph">${content}</p>`);
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!listItems.length) {
+      return;
+    }
+
+    html.push(`<ul class="assistant-list">${listItems.join("")}</ul>`);
+    listItems = [];
+  }
+
+  function flushEndpoints() {
+    if (currentEndpoint) {
+      endpointItems.push(currentEndpoint);
+      currentEndpoint = null;
+    }
+
+    if (!endpointItems.length) {
+      return;
+    }
+
+    html.push(`<div class="assistant-endpoints">${endpointItems.join("")}</div>`);
+    endpointItems = [];
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushParagraph();
+      flushList();
+      flushEndpoints();
+      continue;
+    }
+
+    const markdownHeadingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+    if (markdownHeadingMatch) {
+      flushParagraph();
+      flushList();
+      flushEndpoints();
+
+      const level = Math.min(markdownHeadingMatch[1].length, 3);
+      const content = formatInlineAssistantText(markdownHeadingMatch[2]);
+      html.push(`<h${level + 2} class="assistant-heading assistant-heading-${level}">${content}</h${level + 2}>`);
+      continue;
+    }
+
+    const numberedHeadingMatch = line.match(/^(\d+)\.\s+(.+)$/);
+    if (numberedHeadingMatch) {
+      flushParagraph();
+      flushList();
+      flushEndpoints();
+
+      const index = escapeHtml(numberedHeadingMatch[1]);
+      const content = formatInlineAssistantText(numberedHeadingMatch[2]);
+      html.push(`<h3 class="assistant-heading assistant-heading-numbered"><span class="assistant-heading-index">${index}.</span> ${content}</h3>`);
+      continue;
+    }
+
+    const endpointMatch = line.match(/^\-\s*(GET|POST|PUT|PATCH|DELETE)\s+([^\s:]+):\s*(.+)$/i);
+    if (endpointMatch) {
+      flushParagraph();
+      flushList();
+
+      if (currentEndpoint) {
+        endpointItems.push(currentEndpoint);
+      }
+
+      const method = escapeHtml(endpointMatch[1].toUpperCase());
+      const path = formatInlineAssistantText(endpointMatch[2]);
+      const purpose = formatInlineAssistantText(endpointMatch[3]);
+
+      currentEndpoint = `
+        <article class="endpoint-item">
+          <div class="endpoint-main">
+            <span class="endpoint-method">${method}</span>
+            <code class="endpoint-path">${path}</code>
+          </div>
+          <p class="endpoint-purpose">${purpose}</p>
+      `;
+      continue;
+    }
+
+    if (currentEndpoint && /^request:\s*/i.test(line)) {
+      const requestText = formatInlineAssistantText(line.replace(/^request:\s*/i, ""));
+      currentEndpoint += `<div class="endpoint-meta"><span class="endpoint-meta-label">Request</span><span class="endpoint-meta-text">${requestText}</span></div>`;
+      continue;
+    }
+
+    if (currentEndpoint && /^response:\s*/i.test(line)) {
+      const responseText = formatInlineAssistantText(line.replace(/^response:\s*/i, ""));
+      currentEndpoint += `<div class="endpoint-meta"><span class="endpoint-meta-label">Response</span><span class="endpoint-meta-text">${responseText}</span></div></article>`;
+      endpointItems.push(currentEndpoint);
+      currentEndpoint = null;
+      continue;
+    }
+
+    if (/^\-\s+/.test(line)) {
+      flushParagraph();
+      flushEndpoints();
+      listItems.push(`<li>${formatInlineAssistantText(line.replace(/^\-\s+/, ""))}</li>`);
+      continue;
+    }
+
+    flushList();
+    flushEndpoints();
+    paragraph.push(formatInlineAssistantText(line));
+  }
+
+  flushParagraph();
+  flushList();
+  flushEndpoints();
+
+  return `<div class="assistant-rich">${html.join("")}</div>`;
+}
+
 function formatAssistantContent(text) {
+  if (isToolProgressMessage(text)) {
+    return escapeHtml(text);
+  }
+
   const sql = extractSqlBlock(text);
   if (!sql) {
-    return `<div class="message-text">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
+    return renderStructuredAssistantText(text);
   }
 
   let intro = text;
@@ -91,24 +254,76 @@ function formatAssistantContent(text) {
     intro = "";
   }
 
-  const introHtml = intro
-    ? `<div class="message-text">${escapeHtml(intro).replace(/\n/g, "<br>")}</div>`
-    : "";
+  const introHtml = intro ? renderStructuredAssistantText(intro) : "";
 
   return `${introHtml}<div class="sql-block"><div class="sql-label">SQL</div><pre><code>${escapeHtml(sql)}</code></pre></div>`;
 }
 
-function createMessageElement(role, content = "") {
+function isToolProgressMessage(text) {
+  const normalized = (text || "").trim();
+  return TOOL_PROGRESS_MESSAGES.includes(normalized);
+}
+
+function getToolProgressDetail(text) {
+  const normalized = (text || "").trim();
+  return TOOL_PROGRESS_DETAILS[normalized] || null;
+}
+
+function buildProgressUiState(progressText) {
+  const detail = getToolProgressDetail(progressText);
+  return {
+    badges: [
+      "A executar",
+      detail?.label || "Apoio interno"
+    ]
+  };
+}
+
+function buildFallbackUiState(progressText) {
+  const detail = getToolProgressDetail(progressText);
+  return {
+    badges: [
+      "Com apoio interno",
+      detail?.label || "Apoio interno",
+      "Resposta consolidada"
+    ]
+  };
+}
+
+function buildAssistantMeta(uiState) {
+  if (!uiState || !Array.isArray(uiState.badges) || !uiState.badges.length) {
+    return "";
+  }
+
+  const badges = uiState.badges
+    .filter((badge) => typeof badge === "string" && badge.trim())
+    .map((badge) => `<span class="message-badge">${escapeHtml(badge.trim())}</span>`)
+    .join("");
+
+  if (!badges) {
+    return "";
+  }
+
+  return `<div class="message-meta">${badges}</div>`;
+}
+
+function renderMessageContent(role, content, uiState = null) {
+  if (role === "assistant") {
+    return `${buildAssistantMeta(uiState)}${formatAssistantContent(content)}`;
+  }
+
+  return escapeHtml(content);
+}
+function createMessageElement(role, content = "", variant = "default", uiState = null) {
   const bubble = document.createElement("article");
   bubble.className = `message ${role}`;
+  if (variant !== "default") {
+    bubble.classList.add(`message-${variant}`);
+  }
 
   const contentEl = document.createElement("div");
   contentEl.className = "message-content";
-  if (role === "assistant") {
-    contentEl.innerHTML = formatAssistantContent(content);
-  } else {
-    contentEl.textContent = content;
-  }
+  contentEl.innerHTML = renderMessageContent(role, content, uiState);
 
   bubble.appendChild(contentEl);
   messagesEl.appendChild(bubble);
@@ -116,25 +331,25 @@ function createMessageElement(role, content = "") {
   return bubble;
 }
 
-function renderMessage(role, content) {
-  return createMessageElement(role, content);
+function renderMessage(role, content, variant = "default", uiState = null) {
+  return createMessageElement(role, content, variant, uiState);
 }
 
-function updateMessage(element, content) {
+function updateMessage(element, content, variant = "default", uiState = null) {
   const contentEl = element.querySelector(".message-content");
   if (!contentEl) {
     return;
   }
 
-  if (element.classList.contains("assistant")) {
-    contentEl.innerHTML = formatAssistantContent(content);
-  } else {
-    contentEl.textContent = content;
+  const role = element.classList.contains("assistant") ? "assistant" : "user";
+  element.classList.remove("message-progress");
+  if (variant !== "default") {
+    element.classList.add(`message-${variant}`);
   }
+  contentEl.innerHTML = renderMessageContent(role, content, uiState);
 
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
-
 function setLoading(loading) {
   isLoading = loading;
   inputEl.disabled = loading;
@@ -192,7 +407,7 @@ function renderConversationMessages() {
   }
 
   messages.forEach((message, index) => {
-    const bubble = renderMessage(message.role, message.content);
+    const bubble = renderMessage(message.role, message.content, "default", message.uiState || null);
     if (message.role === "assistant" && index > 0) {
       const previousMessage = messages[index - 1];
       if (previousMessage?.role === "user" && isSqlIntent(previousMessage.content)) {
@@ -306,6 +521,314 @@ async function fetchJson(url, options = {}) {
   return data;
 }
 
+function getExecutionStatusClass(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+
+  if (normalized === "error") {
+    return "error";
+  }
+
+  if (normalized === "running" || normalized === "started") {
+    return "running";
+  }
+
+  if (normalized === "success" || normalized === "completed" || normalized === "done") {
+    return "done";
+  }
+
+  return "idle";
+}
+
+function getExecutionStatusLabel(status) {
+  const statusClass = getExecutionStatusClass(status);
+
+  if (statusClass === "running") {
+    return "Running";
+  }
+
+  if (statusClass === "done") {
+    return "Done";
+  }
+
+  if (statusClass === "error") {
+    return "Error";
+  }
+
+  return "Idle";
+}
+
+function resolveExecutionItemStatus(status, traceStatus) {
+  const itemStatusClass = getExecutionStatusClass(status);
+  const traceStatusClass = getExecutionStatusClass(traceStatus);
+
+  if (itemStatusClass === "running" && traceStatusClass === "done") {
+    return "completed";
+  }
+
+  if (itemStatusClass === "running" && traceStatusClass === "error") {
+    return "error";
+  }
+
+  return status;
+}
+
+function formatDuration(ms) {
+  if (typeof ms !== "number" || Number.isNaN(ms) || ms < 0) {
+    return "";
+  }
+
+  if (ms >= 1000) {
+    const seconds = ms / 1000;
+    return `${seconds >= 10 ? seconds.toFixed(0) : seconds.toFixed(1)}s`;
+  }
+
+  return `${Math.round(ms)}ms`;
+}
+
+function setExecutionFlowState(
+  status = "idle",
+  subtitle = "Passos discretos do pedido atual.",
+  body = "Os passos internos do pedido atual aparecem aqui."
+) {
+  if (!executionFlowListEl || !executionFlowStatusEl || !executionFlowSubtitleEl) {
+    return;
+  }
+
+  const statusLabel = getExecutionStatusLabel(status);
+  const statusClass = getExecutionStatusClass(status);
+
+  executionFlowStatusEl.textContent = statusLabel;
+  executionFlowStatusEl.className = `execution-flow-status ${statusClass}`;
+  executionFlowSubtitleEl.textContent = subtitle;
+  executionFlowListEl.innerHTML = `<div class="execution-flow-empty">${escapeHtml(body)}</div>`;
+}
+
+function buildExecutionStepDetail(label, step, trace) {
+  const parts = [];
+
+  if (label === "Request received" && typeof step.message_count === "number") {
+    parts.push(`${step.message_count} message${step.message_count === 1 ? "" : "s"}`);
+  }
+
+  if (
+    ["Tool selected", "Tool executed", "Tool result received", "Fallback used"].includes(label)
+    && typeof step.tool_name === "string"
+    && step.tool_name.trim()
+  ) {
+    parts.push(step.tool_name.trim());
+  }
+
+  if (label === "Tool executed") {
+    const duration = formatDuration(step.duration_ms);
+    if (duration) {
+      parts.push(duration);
+    }
+  }
+
+  if (label === "Fallback used") {
+    if (step.reason === "tool_result_rendered") {
+      parts.push("tool output reused");
+    } else if (step.reason === "empty_model_response") {
+      parts.push("empty model response");
+    } else if (step.reason === "invalid_tool_call") {
+      parts.push("invalid tool call");
+    } else if (step.reason === "tool_error") {
+      parts.push("tool error fallback");
+    }
+  }
+
+  if (label === "Final response sent") {
+    const totalDuration = formatDuration(trace?.total_duration_ms);
+    if (totalDuration) {
+      parts.push(`Total ${totalDuration}`);
+    }
+  }
+
+  if (step.status === "error" && typeof step.error_detail === "string" && step.error_detail.trim()) {
+    parts.push(step.error_detail.trim());
+  }
+
+  return parts.join(" · ");
+}
+
+function summarizeExecutionTrace(trace) {
+  const items = [];
+  const steps = Array.isArray(trace?.steps) ? trace.steps : [];
+
+  steps.forEach((step, index) => {
+    if (!step || typeof step.stage !== "string") {
+      return;
+    }
+
+    if (step.stage === "request_received") {
+      items.push({
+        key: `request-${index}`,
+        label: "Request received",
+        status: step.status,
+        detail: buildExecutionStepDetail("Request received", step, trace)
+      });
+      return;
+    }
+
+    if (step.stage === "tool_call") {
+      if (step.status === "started") {
+        items.push({
+          key: `tool-${index}-selected`,
+          label: "Tool selected",
+          status: step.status,
+          detail: buildExecutionStepDetail("Tool selected", step, trace)
+        });
+        return;
+      }
+
+      items.push({
+        key: `tool-${index}-executed`,
+        label: "Tool executed",
+        status: step.status,
+        detail: buildExecutionStepDetail("Tool executed", step, trace)
+      });
+
+      if (step.status === "completed" && Object.prototype.hasOwnProperty.call(step, "tool_result")) {
+        items.push({
+          key: `tool-${index}-result`,
+          label: "Tool result received",
+          status: "completed",
+          detail: buildExecutionStepDetail("Tool result received", step, trace)
+        });
+      }
+      return;
+    }
+
+    if (step.stage === "fallback_used") {
+      items.push({
+        key: `fallback-${index}`,
+        label: "Fallback used",
+        status: step.status,
+        detail: buildExecutionStepDetail("Fallback used", step, trace)
+      });
+      return;
+    }
+
+    if (step.stage === "response_sent") {
+      items.push({
+        key: `response-${index}`,
+        label: "Final response sent",
+        status: step.status,
+        detail: buildExecutionStepDetail("Final response sent", step, trace)
+      });
+    }
+  });
+
+  return items;
+}
+
+function renderExecutionFlow(trace) {
+  if (!executionFlowListEl || !executionFlowStatusEl || !executionFlowSubtitleEl) {
+    return;
+  }
+
+  const items = summarizeExecutionTrace(trace);
+  const statusClass = getExecutionStatusClass(trace?.status);
+  let subtitle = "Passos discretos do pedido atual.";
+
+  if (statusClass === "running") {
+    subtitle = "A acompanhar o pedido atual em tempo real.";
+  } else if (statusClass === "error") {
+    subtitle = "O pedido atual terminou com erro.";
+  } else if (items.length) {
+    subtitle = "Último pedido concluído.";
+  }
+
+  const totalDuration = formatDuration(trace?.total_duration_ms);
+  executionFlowStatusEl.textContent = getExecutionStatusLabel(trace?.status);
+  executionFlowStatusEl.className = `execution-flow-status ${statusClass}`;
+  executionFlowSubtitleEl.textContent = totalDuration && statusClass !== "running"
+    ? `${subtitle} Total ${totalDuration}.`
+    : subtitle;
+
+  if (!items.length) {
+    executionFlowListEl.innerHTML = '<div class="execution-flow-empty">A aguardar passos do pedido atual.</div>';
+    return;
+  }
+
+  executionFlowListEl.innerHTML = items.map((item) => {
+    const effectiveItemStatus = resolveExecutionItemStatus(item.status, trace?.status);
+    const itemStatusClass = getExecutionStatusClass(effectiveItemStatus);
+    const detail = item.detail
+      ? `<div class="execution-step-detail">${escapeHtml(item.detail)}</div>`
+      : "";
+
+    return `
+      <article class="execution-step ${itemStatusClass}">
+        <div class="execution-step-head">
+          <div class="execution-step-title">${escapeHtml(item.label)}</div>
+          <div class="execution-step-pill ${itemStatusClass}">${escapeHtml(getExecutionStatusLabel(effectiveItemStatus))}</div>
+        </div>
+        ${detail}
+      </article>
+    `;
+  }).join("");
+}
+
+function resetExecutionFlow() {
+  currentTraceRequestId = null;
+  currentTracePollToken += 1;
+  setExecutionFlowState();
+}
+
+async function pollExecutionFlow(requestId, token) {
+  if (token !== currentTracePollToken || currentTraceRequestId !== requestId) {
+    return;
+  }
+
+  try {
+    const trace = await fetchJson(`/api/debug/traces/${requestId}`);
+
+    if (token !== currentTracePollToken || currentTraceRequestId !== requestId) {
+      return;
+    }
+
+    renderExecutionFlow(trace);
+
+    if (getExecutionStatusClass(trace?.status) === "running") {
+      window.setTimeout(() => {
+        pollExecutionFlow(requestId, token);
+      }, 700);
+    }
+  } catch (error) {
+    if (token !== currentTracePollToken || currentTraceRequestId !== requestId) {
+      return;
+    }
+
+    setExecutionFlowState(
+      "error",
+      "O fluxo do pedido não pôde ser carregado.",
+      "Não foi possível ler o trace deste pedido."
+    );
+  }
+}
+
+function trackExecutionFlow(requestId) {
+  if (!requestId) {
+    setExecutionFlowState(
+      "idle",
+      "Passos discretos do pedido atual.",
+      "Não foi possível associar o trace a este pedido."
+    );
+    return;
+  }
+
+  currentTraceRequestId = requestId;
+  const token = ++currentTracePollToken;
+
+  setExecutionFlowState(
+    "running",
+    "A acompanhar o pedido atual em tempo real.",
+    "A preparar o fluxo do pedido..."
+  );
+
+  pollExecutionFlow(requestId, token);
+}
 async function createConversationOnServer() {
   return fetchJson("/api/conversations", {
     method: "POST"
@@ -341,7 +864,12 @@ async function syncConversationOnServer() {
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ messages })
+    body: JSON.stringify({
+      messages: messages.map((message) => ({
+        role: message.role,
+        content: message.content
+      }))
+    })
   });
 
   await refreshConversationList();
@@ -354,18 +882,18 @@ async function loadConversation(conversationId) {
     role: message.role,
     content: message.content
   }));
+  resetExecutionFlow();
   renderConversationMessages();
   renderConversationList();
 }
-
 async function createFreshConversation() {
   const conversation = await createConversationOnServer();
   setCurrentConversationId(conversation.id);
   messages = [];
+  resetExecutionFlow();
   await refreshConversationList();
   renderConversationMessages();
 }
-
 async function deleteConversation(conversationId) {
   const deletingCurrentConversation = conversationId === currentConversationId;
 
@@ -513,6 +1041,11 @@ async function sendMessage() {
 
   isSending = true;
 
+  let assistantBubble = null;
+  let assistantText = "";
+  let traceRequestId = null;
+  let lastProgressText = "";
+
   try {
     await ensureConversationReady();
 
@@ -524,9 +1057,11 @@ async function sendMessage() {
     inputEl.value = "";
     stopRequested = false;
     setLoading(true);
-
-    const assistantBubble = createMessageElement("assistant", "");
-    let assistantText = "";
+    setExecutionFlowState(
+      "running",
+      "A acompanhar o pedido atual em tempo real.",
+      "A preparar o fluxo do pedido..."
+    );
 
     currentAbortController = new AbortController();
 
@@ -535,7 +1070,12 @@ async function sendMessage() {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({
+        messages: messages.map((message) => ({
+          role: message.role,
+          content: message.content
+        }))
+      }),
       signal: currentAbortController.signal
     });
 
@@ -543,6 +1083,9 @@ async function sendMessage() {
       const rawText = await response.text();
       throw new Error(`POST /api/chat/stream falhou com HTTP ${response.status}: ${rawText}`);
     }
+
+    traceRequestId = response.headers.get("X-Trace-Request-Id");
+    trackExecutionFlow(traceRequestId);
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -593,8 +1136,23 @@ async function sendMessage() {
           continue;
         }
 
+        if (isToolProgressMessage(data) && !assistantText) {
+          lastProgressText = data;
+          const progressUiState = buildProgressUiState(data);
+          if (!assistantBubble) {
+            assistantBubble = createMessageElement("assistant", data, "progress", progressUiState);
+          } else {
+            updateMessage(assistantBubble, data, "progress", progressUiState);
+          }
+          continue;
+        }
+
+        if (!assistantBubble) {
+          assistantBubble = createMessageElement("assistant", "");
+        }
+
         assistantText += data;
-        updateMessage(assistantBubble, assistantText);
+        updateMessage(assistantBubble, assistantText, "default");
       }
     }
 
@@ -605,29 +1163,56 @@ async function sendMessage() {
       throw new Error("O streaming terminou sem devolver conteúdo.");
     }
 
-    messages.push({ role: "assistant", content: assistantText });
+    messages.push({
+      role: "assistant",
+      content: assistantText
+    });
     await syncConversationOnServer();
 
-    if (shouldOfferSql) {
+    if (shouldOfferSql && assistantBubble) {
       attachSqlButton(assistantBubble, content);
     }
   } catch (error) {
     if (error.name === "AbortError" || stopRequested) {
       assistantText = assistantText.trim();
 
+      if (!assistantBubble) {
+        assistantBubble = createMessageElement("assistant", "");
+      }
+
       if (assistantText) {
-        updateMessage(assistantBubble, `${assistantText}\n\n[Resposta interrompida]`);
+        updateMessage(assistantBubble, `${assistantText}\n\n[Resposta interrompida]`, "default");
         messages.push({ role: "assistant", content: `${assistantText}\n\n[Resposta interrompida]` });
       } else {
-        updateMessage(assistantBubble, "[Resposta interrompida]");
+        const fallbackText = lastProgressText || "[Resposta interrompida]";
+        updateMessage(
+          assistantBubble,
+          fallbackText,
+          lastProgressText ? "progress" : "default",
+          lastProgressText ? buildProgressUiState(lastProgressText) : null
+        );
+        messages.push({ role: "assistant", content: "[Resposta interrompida]" });
       }
 
       await syncConversationOnServer();
       statusTextEl.textContent = "Resposta interrompida.";
     } else {
-      updateMessage(assistantBubble, `Erro: ${error.message}`);
+      if (!assistantBubble) {
+        assistantBubble = createMessageElement("assistant", "");
+      }
+
+      updateMessage(assistantBubble, `Erro: ${error.message}`, "default");
+      messages.push({ role: "assistant", content: `Erro: ${error.message}` });
       await syncConversationOnServer();
       statusTextEl.textContent = "Falha ao comunicar com o Ollama.";
+
+      if (!traceRequestId) {
+        setExecutionFlowState(
+          "error",
+          "O fluxo do pedido não pôde ser acompanhado.",
+          "Não foi possível carregar o trace deste pedido."
+        );
+      }
     }
   } finally {
     currentAbortController = null;
@@ -638,7 +1223,6 @@ async function sendMessage() {
     await loadOllamaStatus();
   }
 }
-
 formEl.addEventListener("submit", async (event) => {
   event.preventDefault();
   await sendMessage();
@@ -662,12 +1246,14 @@ promptButtons.forEach((button) => {
   });
 });
 
+resetExecutionFlow();
 renderConversationMessages();
 renderConversationList();
 ensureConversationReady().catch((error) => {
   statusTextEl.textContent = `Falha ao carregar memória: ${error.message}`;
 });
 loadOllamaStatus();
+
 
 
 
