@@ -28,6 +28,7 @@ from app.schemas.response import (
 from app.services.conversation_store import ConversationStore
 from app.services.mcp_service import McpService, McpServiceError
 from app.services.ollama_service import OllamaService, OllamaServiceError
+from app.services.tool_selector import select_tool_from_prompt
 from app.services.tool_runtime import (
     extract_tool_call_response,
     format_tool_result,
@@ -161,6 +162,10 @@ def extract_user_friendly_tool_text(tool_result: object) -> str | None:
         return text or None
 
     if isinstance(tool_result, dict):
+        rendered_text = str(tool_result.get("rendered_text", "")).strip()
+        if rendered_text:
+            return rendered_text
+
         mvp_plan = str(tool_result.get("mvp_plan_markdown", "")).strip()
         if mvp_plan:
             sections: list[str] = []
@@ -176,6 +181,23 @@ def extract_user_friendly_tool_text(tool_result: object) -> str | None:
                     sections.append("Suposicoes assumidas:\n- " + "\n- ".join(normalized_assumptions))
 
             sections.append(mvp_plan)
+            return "\n\n".join(section for section in sections if section.strip()).strip()
+
+        entities_markdown = str(tool_result.get("entities_markdown", "")).strip()
+        if entities_markdown:
+            sections: list[str] = []
+
+            domain_summary = str(tool_result.get("domain_summary", "")).strip()
+            if domain_summary:
+                sections.append(f"Resumo do domínio:\n{domain_summary}")
+
+            assumptions = tool_result.get("assumptions")
+            if isinstance(assumptions, list):
+                normalized_assumptions = [str(item).strip() for item in assumptions if str(item).strip()]
+                if normalized_assumptions:
+                    sections.append("Suposicoes assumidas:\n- " + "\n- ".join(normalized_assumptions))
+
+            sections.append(entities_markdown)
             return "\n\n".join(section for section in sections if section.strip()).strip()
 
         sql = str(tool_result.get("sql", "")).strip()
@@ -279,6 +301,7 @@ def should_use_tool_execution_in_stream(last_user_message: str) -> bool:
         "usa a ferramenta",
         "usar a ferramenta",
         "generate_mvp_plan",
+        "generate_entities",
         "generate_sql_schema",
         "suggest_api_endpoints",
         "mcp",
@@ -288,6 +311,8 @@ def should_use_tool_execution_in_stream(last_user_message: str) -> bool:
 
     domain_request_signals = (
         "plano mvp",
+        "modela as entidades",
+        "entidades principais",
         "schema sql",
         "gerar sql",
         "esquema sql",
@@ -352,66 +377,7 @@ def route_domain_tool_request(
     last_user_message: str,
     available_tools: list[dict],
 ) -> dict[str, dict[str, object]] | None:
-    explicit_request = extract_explicit_tool_request(last_user_message, available_tools)
-    if explicit_request is not None:
-        return explicit_request
-
-    text = last_user_message.strip()
-    lower_text = text.lower()
-    if not text:
-        return None
-
-    available_tool_names = {
-        str(tool.get("name", "")).strip()
-        for tool in available_tools
-        if str(tool.get("name", "")).strip()
-    }
-
-    has_mvp_signal = "mvp" in lower_text and any(
-        keyword in lower_text for keyword in ("plano", "roadmap", "fases", "passos", "escopo")
-    )
-    has_sql_signal = any(
-        keyword in lower_text
-        for keyword in ("schema sql", "esquema sql", "sql", "tabelas", "base de dados", "banco de dados")
-    )
-    has_api_signal = any(
-        keyword in lower_text
-        for keyword in ("endpoint", "endpoints", "api", "rota", "rotas")
-    )
-
-    if has_sql_signal and "generate_sql_schema" in available_tool_names:
-        arguments: dict[str, object] = {"project_brief": text}
-        if "postgres" in lower_text or "postgresql" in lower_text:
-            arguments["database_engine"] = "postgresql"
-        elif "mysql" in lower_text:
-            arguments["database_engine"] = "mysql"
-        elif "sqlite" in lower_text:
-            arguments["database_engine"] = "sqlite"
-        return {
-            "tool": "generate_sql_schema",
-            "arguments": arguments,
-        }
-
-    if has_api_signal and "suggest_api_endpoints" in available_tool_names:
-        arguments = {"project_brief": text}
-        if "bearer" in lower_text or "jwt" in lower_text:
-            arguments["auth_style"] = "bearer"
-        elif "session" in lower_text:
-            arguments["auth_style"] = "session"
-        elif "public" in lower_text:
-            arguments["auth_style"] = "public"
-        return {
-            "tool": "suggest_api_endpoints",
-            "arguments": arguments,
-        }
-
-    if has_mvp_signal and "generate_mvp_plan" in available_tool_names:
-        return {
-            "tool": "generate_mvp_plan",
-            "arguments": {"project_brief": text},
-        }
-
-    return None
+    return select_tool_from_prompt(last_user_message, available_tools)
 
 
 async def execute_explicit_tool_request(
@@ -473,6 +439,7 @@ async def execute_explicit_tool_request(
 def build_stream_tool_progress_message(tool_name: str) -> str:
     messages = {
         "generate_mvp_plan": "A gerar plano MVP...",
+        "generate_entities": "A gerar plano MVP...",
         "generate_sql_schema": "A criar esquema SQL...",
         "suggest_api_endpoints": "A sugerir endpoints API...",
     }
