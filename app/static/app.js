@@ -309,7 +309,7 @@ function buildAssistantMeta(uiState) {
 
 function renderMessageContent(role, content, uiState = null) {
   if (role === "assistant") {
-    return formatAssistantContent(content);
+    return `${buildAssistantMeta(uiState)}${formatAssistantContent(content)}`;
   }
 
   return escapeHtml(content);
@@ -335,13 +335,17 @@ function renderMessage(role, content, variant = "default", uiState = null) {
   return createMessageElement(role, content, variant, uiState);
 }
 
-function updateMessage(element, content, uiState = null) {
+function updateMessage(element, content, variant = "default", uiState = null) {
   const contentEl = element.querySelector(".message-content");
   if (!contentEl) {
     return;
   }
 
   const role = element.classList.contains("assistant") ? "assistant" : "user";
+  element.classList.remove("message-progress");
+  if (variant !== "default") {
+    element.classList.add(`message-${variant}`);
+  }
   contentEl.innerHTML = renderMessageContent(role, content, uiState);
 
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -387,7 +391,7 @@ async function loadOllamaStatus() {
       `${data.detail} Modelo configurado: ${data.model}. Endpoint: ${data.base_url}.`
     );
   } catch (error) {
-    setOllamaStatus("offline", `NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o foi possÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel verificar o Ollama: ${error.message}`);
+    setOllamaStatus("offline", `Não foi possível verificar o Ollama: ${error.message}`);
   }
 }
 
@@ -397,7 +401,7 @@ function renderConversationMessages() {
   if (!messages.length) {
     renderMessage(
       "assistant",
-      "OlÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡! Posso planear o teu produto, modelar entidades e gerar um esquema SQL inicial. Diz-me o que queres construir."
+      "Olá! Posso planear o teu produto, modelar entidades e gerar um esquema SQL inicial. Diz-me o que queres construir."
     );
     return;
   }
@@ -419,7 +423,7 @@ function renderConversationList() {
   if (!conversationSummaries.length) {
     const emptyState = document.createElement("div");
     emptyState.className = "conversation-empty";
-    emptyState.textContent = "Ainda nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o tens conversas guardadas.";
+    emptyState.textContent = "Ainda não tens conversas guardadas.";
     conversationListEl.appendChild(emptyState);
     return;
   }
@@ -505,7 +509,7 @@ async function fetchJson(url, options = {}) {
     try {
       data = JSON.parse(rawText);
     } catch (error) {
-      throw new Error(`Resposta invÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡lida de ${url}: ${rawText}`);
+      throw new Error(`Resposta inválida de ${url}: ${rawText}`);
     }
   }
 
@@ -1024,6 +1028,7 @@ async function sendMessage() {
   let assistantBubble = null;
   let assistantText = "";
   let traceRequestId = null;
+  let lastProgressText = "";
 
   try {
     await ensureConversationReady();
@@ -1116,6 +1121,13 @@ async function sendMessage() {
         }
 
         if (isToolProgressMessage(data) && !assistantText) {
+          lastProgressText = data;
+          const progressUiState = buildProgressUiState(data);
+          if (!assistantBubble) {
+            assistantBubble = createMessageElement("assistant", data, "progress", progressUiState);
+          } else {
+            updateMessage(assistantBubble, data, "progress", progressUiState);
+          }
           continue;
         }
 
@@ -1124,7 +1136,7 @@ async function sendMessage() {
         }
 
         assistantText += data;
-        updateMessage(assistantBubble, assistantText);
+        updateMessage(assistantBubble, assistantText, "default");
       }
     }
 
@@ -1132,7 +1144,7 @@ async function sendMessage() {
     assistantText = assistantText.trim();
 
     if (!assistantText) {
-      throw new Error("O streaming terminou sem devolver conteÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºdo.");
+      throw new Error("O streaming terminou sem devolver conteúdo.");
     }
 
     messages.push({
@@ -1153,10 +1165,16 @@ async function sendMessage() {
       }
 
       if (assistantText) {
-        updateMessage(assistantBubble, `${assistantText}\n\n[Resposta interrompida]`);
+        updateMessage(assistantBubble, `${assistantText}\n\n[Resposta interrompida]`, "default");
         messages.push({ role: "assistant", content: `${assistantText}\n\n[Resposta interrompida]` });
       } else {
-        updateMessage(assistantBubble, "[Resposta interrompida]");
+        const fallbackText = lastProgressText || "[Resposta interrompida]";
+        updateMessage(
+          assistantBubble,
+          fallbackText,
+          lastProgressText ? "progress" : "default",
+          lastProgressText ? buildProgressUiState(lastProgressText) : null
+        );
         messages.push({ role: "assistant", content: "[Resposta interrompida]" });
       }
 
@@ -1167,7 +1185,7 @@ async function sendMessage() {
         assistantBubble = createMessageElement("assistant", "");
       }
 
-      updateMessage(assistantBubble, `Erro: ${error.message}`);
+      updateMessage(assistantBubble, `Erro: ${error.message}`, "default");
       messages.push({ role: "assistant", content: `Erro: ${error.message}` });
       await syncConversationOnServer();
       statusTextEl.textContent = "Falha ao comunicar com o Ollama.";
@@ -1216,7 +1234,7 @@ resetExecutionFlow();
 renderConversationMessages();
 renderConversationList();
 ensureConversationReady().catch((error) => {
-  statusTextEl.textContent = `Falha ao carregar memÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ria: ${error.message}`;
+  statusTextEl.textContent = `Falha ao carregar memória: ${error.message}`;
 });
 loadOllamaStatus();
 
