@@ -39,7 +39,13 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
         "Nunca inventes nomes de tools, aliases ou nomes mais descritivos do que os fornecidos pelo servidor MCP.",
         "Se não existir uma tool adequada na lista, não devolvas tool_call inventado; responde normalmente com as limitações.",
         "Usa uma tool MCP quando o pedido exigir dados reais, verificação, inspeção, listagem ou consulta que a tool possa fornecer.",
-        "Se o pedido for claramente para gerar um plano de MVP de um produto, a tua primeira resposta deve ser um tool_call para generate_mvp_plan quando ela estiver disponível.",
+        "Seleciona a tool pela intenção principal do pedido, não por palavras genéricas como aplicação, sistema, gestão ou tarefas.",
+        "Se o pedido for claramente para gerar um plano de MVP, roadmap, fases, objetivo do produto, público-alvo ou funcionalidades principais, a tua primeira resposta deve ser um tool_call para generate_mvp_plan quando ela estiver disponível.",
+        "Se o pedido for para entidades, modelos, tabelas conceptuais, relações, campos principais ou modelação de domínio, a tua primeira resposta deve ser um tool_call para generate_entities quando ela estiver disponível.",
+        "Só usa generate_sql_schema quando o pedido for explicitamente SQL, esquema SQL, CREATE TABLE, script SQL, base de dados relacional ou estrutura técnica de base de dados.",
+        "Se o pedido for para endpoints, rotas, controllers, API, backend HTTP ou sugestões REST, a tua primeira resposta deve ser um tool_call para suggest_api_endpoints quando ela estiver disponível.",
+        "Não acrescentes secções extra nem expandas para temas adjacentes se o utilizador não os pediu.",
+        "Se o pedido disser curto, simples, resumido ou apenas, responde com esse nível de concisão.",
         "Se o utilizador pedir explicitamente para usar uma tool, a tua primeira resposta deve ser um tool_call válido sempre que exista uma tool adequada.",
         "Não respondas com conhecimento geral nem inventes resultados se uma tool MCP puder obter a informação pedida.",
         "Quando precisares de usar uma tool MCP, responde apenas com JSON puro neste formato:",
@@ -58,11 +64,15 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
             sections.append(f"- {name}: {description}")
             if name == "generate_mvp_plan":
                 sections.append(
-                    "  usa_para: pedidos de plano MVP, fases de implementação, escopo inicial, entidades, base de dados e API de um produto."
+                    "  usa_para: pedidos de plano MVP, roadmap, fases, objetivo do produto, público-alvo e funcionalidades principais."
+                )
+            if name == "generate_entities":
+                sections.append(
+                    "  usa_para: pedidos de entidades, modelos, tabelas conceptuais, relações, campos principais e modelação de domínio sem SQL."
                 )
             if name == "generate_sql_schema":
                 sections.append(
-                    "  usa_para: pedidos de esquema SQL inicial, tabelas, relações, chaves, índices e estrutura de base de dados do MVP."
+                    "  usa_para: pedidos explicitamente SQL, esquema SQL, CREATE TABLE, chaves, índices e estrutura técnica de base de dados."
                 )
             if name == "suggest_api_endpoints":
                 sections.append(

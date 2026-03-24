@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.request_analysis import build_output_guardrails, extract_request_constraints
 from app.services.ollama_service import OllamaService
 
 
@@ -17,8 +18,8 @@ class DomainToolDefinition:
 generate_mvp_plan_tool = DomainToolDefinition(
     name="generate_mvp_plan",
     description=(
-        "Gera um plano de MVP orientado ao domínio do produto com escopo, entidades, "
-        "base de dados, API e passos de implementação."
+        "Gera um plano de MVP focado apenas em produto, escopo e prioridades "
+        "essenciais."
     ),
     input_schema={
         "type": "object",
@@ -57,6 +58,53 @@ generate_mvp_plan_tool = DomainToolDefinition(
             "mvp_plan_markdown": {"type": "string"},
         },
         "required": ["project_summary", "assumptions", "mvp_plan_markdown"],
+        "additionalProperties": False,
+    },
+)
+
+generate_entities_tool = DomainToolDefinition(
+    name="generate_entities",
+    description=(
+        "Modela entidades de domínio, relações e campos principais sem gerar SQL, "
+        "focando a estrutura conceptual do produto."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "project_brief": {
+                "type": "string",
+                "description": "Descrição principal do produto e do problema a modelar.",
+            },
+            "target_users": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Perfis de utilizadores principais do domínio.",
+            },
+            "core_features": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Funcionalidades principais que influenciam o modelo conceptual.",
+            },
+            "constraints": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Restrições de negócio ou técnicas relevantes para a modelação.",
+            },
+        },
+        "required": ["project_brief"],
+        "additionalProperties": False,
+    },
+    output_schema={
+        "type": "object",
+        "properties": {
+            "domain_summary": {"type": "string"},
+            "assumptions": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "entities_markdown": {"type": "string"},
+        },
+        "required": ["domain_summary", "assumptions", "entities_markdown"],
         "additionalProperties": False,
     },
 )
@@ -182,6 +230,7 @@ suggest_api_endpoints_tool = DomainToolDefinition(
 
 DOMAIN_TOOLS: tuple[DomainToolDefinition, ...] = (
     generate_mvp_plan_tool,
+    generate_entities_tool,
     generate_sql_schema_tool,
     suggest_api_endpoints_tool,
 )
@@ -211,6 +260,9 @@ async def execute_domain_tool(
     if tool_name == generate_mvp_plan_tool.name:
         return await _execute_generate_mvp_plan(arguments, ollama_service)
 
+    if tool_name == generate_entities_tool.name:
+        return await _execute_generate_entities(arguments, ollama_service)
+
     if tool_name == generate_sql_schema_tool.name:
         return await _execute_generate_sql_schema(arguments, ollama_service)
 
@@ -231,14 +283,16 @@ async def _execute_generate_mvp_plan(
     target_users = _normalize_string_list(arguments.get("target_users"))
     core_features = _normalize_string_list(arguments.get("core_features"))
     constraints = _normalize_string_list(arguments.get("constraints"))
+    request_constraints = extract_request_constraints(project_brief)
 
-    plan_prompt = _build_plan_prompt(
+    plan_prompt = _build_mvp_plan_prompt(
         project_brief=project_brief,
         target_users=target_users,
         core_features=core_features,
         constraints=constraints,
+        request_constraints=request_constraints,
     )
-    plan = await ollama_service.generate_plan(plan_prompt)
+    plan = await ollama_service.chat(plan_prompt)
 
     return {
         "project_summary": project_brief,
@@ -247,7 +301,8 @@ async def _execute_generate_mvp_plan(
             core_features=core_features,
             constraints=constraints,
         ),
-        "mvp_plan_markdown": plan,
+        "mvp_plan_markdown": plan.strip(),
+        "rendered_text": plan.strip(),
     }
 
 
@@ -263,6 +318,7 @@ async def _execute_generate_sql_schema(
     core_features = _normalize_string_list(arguments.get("core_features"))
     constraints = _normalize_string_list(arguments.get("constraints"))
     database_engine = str(arguments.get("database_engine", "")).strip().lower()
+    request_constraints = extract_request_constraints(project_brief)
 
     sql_prompt = _build_sql_schema_prompt(
         project_brief=project_brief,
@@ -270,6 +326,7 @@ async def _execute_generate_sql_schema(
         core_features=core_features,
         constraints=constraints,
         database_engine=database_engine,
+        request_constraints=request_constraints,
     )
     sql = await ollama_service.generate_sql_schema(sql_prompt)
 
@@ -288,7 +345,42 @@ async def _execute_generate_sql_schema(
     if suggested_file_name:
         response["suggested_file_name"] = suggested_file_name
 
+    response["rendered_text"] = sql.strip()
     return response
+
+
+async def _execute_generate_entities(
+    arguments: dict[str, Any],
+    ollama_service: OllamaService,
+) -> dict[str, Any]:
+    project_brief = str(arguments.get("project_brief", "")).strip()
+    if len(project_brief) < 5:
+        raise ValueError("A tool generate_entities exige um campo project_brief válido.")
+
+    target_users = _normalize_string_list(arguments.get("target_users"))
+    core_features = _normalize_string_list(arguments.get("core_features"))
+    constraints = _normalize_string_list(arguments.get("constraints"))
+    request_constraints = extract_request_constraints(project_brief)
+
+    entities_prompt = _build_entities_prompt(
+        project_brief=project_brief,
+        target_users=target_users,
+        core_features=core_features,
+        constraints=constraints,
+        request_constraints=request_constraints,
+    )
+    entities_markdown = await ollama_service.chat(entities_prompt)
+
+    return {
+        "domain_summary": project_brief,
+        "assumptions": _build_entities_assumptions(
+            target_users=target_users,
+            core_features=core_features,
+            constraints=constraints,
+        ),
+        "entities_markdown": entities_markdown.strip(),
+        "rendered_text": entities_markdown.strip(),
+    }
 
 
 async def _execute_suggest_api_endpoints(
@@ -303,6 +395,7 @@ async def _execute_suggest_api_endpoints(
     core_features = _normalize_string_list(arguments.get("core_features"))
     constraints = _normalize_string_list(arguments.get("constraints"))
     auth_style = str(arguments.get("auth_style", "")).strip().lower()
+    request_constraints = extract_request_constraints(project_brief)
 
     api_prompt = _build_api_endpoints_prompt(
         project_brief=project_brief,
@@ -310,13 +403,13 @@ async def _execute_suggest_api_endpoints(
         core_features=core_features,
         auth_style=auth_style,
         constraints=constraints,
+        request_constraints=request_constraints,
     )
     raw_response = await ollama_service.chat(api_prompt)
     parsed = _parse_api_endpoints_response(raw_response)
-
     endpoints = _normalize_endpoints(parsed.get("endpoints"))
     if not endpoints:
-        raise ValueError("A tool suggest_api_endpoints não conseguiu gerar endpoints válidos.")
+        endpoints = _extract_endpoints_from_text(raw_response)
 
     response: dict[str, Any] = {
         "api_summary": str(parsed.get("api_summary", "")).strip() or project_brief,
@@ -326,13 +419,18 @@ async def _execute_suggest_api_endpoints(
             auth_style=auth_style,
             constraints=constraints,
         ),
-        "endpoints": endpoints,
     }
+    if endpoints:
+        response["endpoints"] = endpoints
 
     suggested_base_path = str(parsed.get("suggested_base_path", "")).strip()
     if suggested_base_path:
         response["suggested_base_path"] = suggested_base_path
 
+    if endpoints:
+        response["rendered_text"] = _render_api_endpoints(endpoints)
+    else:
+        response["rendered_text"] = _build_api_text_fallback(raw_response)
     return response
 
 
@@ -348,13 +446,14 @@ def _normalize_string_list(raw_value: Any) -> list[str]:
     return normalized_items
 
 
-def _build_plan_prompt(
+def _build_mvp_plan_prompt(
     *,
     project_brief: str,
     target_users: list[str],
     core_features: list[str],
     constraints: list[str],
-) -> str:
+    request_constraints,
+) -> list[dict[str, str]]:
     sections = [f"Projeto:\n{project_brief}"]
 
     if target_users:
@@ -364,7 +463,32 @@ def _build_plan_prompt(
     if constraints:
         sections.append("Restrições:\n- " + "\n- ".join(constraints))
 
-    return "\n\n".join(sections).strip()
+    guardrails = build_output_guardrails(
+        request_constraints,
+        allow_code=False,
+        allow_sql=False,
+        allow_database=False,
+        allow_api=False,
+        allow_backend=False,
+        allow_frontend=False,
+    )
+
+    instructions = [
+        "Tu geras apenas planeamento de produto para um MVP.",
+        "Nunca incluas SQL, base de dados, API, endpoints, backend, frontend, código ou entidades técnicas.",
+        "Foca apenas objetivo, público-alvo, funcionalidades essenciais, prioridade e próximos passos do produto.",
+        "Não adiciones secções que o utilizador não pediu.",
+        "Se o pedido for curto, simples, resumido ou apenas, responde de forma curta.",
+        "Se não houver pedido de detalhe, usa no máximo 4 bullets curtos.",
+    ]
+    if request_constraints.forbid_explanations:
+        instructions.append("Devolve apenas bullets diretos, sem introdução nem conclusão.")
+    instructions.extend(guardrails)
+
+    return [
+        {"role": "system", "content": "\n".join(instructions)},
+        {"role": "user", "content": "\n\n".join(sections).strip()},
+    ]
 
 
 def _build_sql_schema_prompt(
@@ -374,6 +498,7 @@ def _build_sql_schema_prompt(
     core_features: list[str],
     constraints: list[str],
     database_engine: str,
+    request_constraints,
 ) -> str:
     sections = [f"Projeto:\n{project_brief}"]
 
@@ -386,7 +511,72 @@ def _build_sql_schema_prompt(
     if database_engine:
         sections.append(f"Motor de base de dados preferido:\n{database_engine}")
 
+    guardrails = build_output_guardrails(
+        request_constraints,
+        allow_code=False,
+        allow_sql=True,
+        allow_database=True,
+        allow_api=False,
+        allow_backend=False,
+        allow_frontend=False,
+    )
+    if guardrails:
+        sections.append("Regras de output:\n- " + "\n- ".join(guardrails))
+
     return "\n\n".join(sections).strip()
+
+
+def _build_entities_prompt(
+    *,
+    project_brief: str,
+    target_users: list[str],
+    core_features: list[str],
+    constraints: list[str],
+    request_constraints,
+) -> list[dict[str, str]]:
+    sections = [f"Projeto:\n{project_brief}"]
+
+    if target_users:
+        sections.append("Utilizadores alvo:\n- " + "\n- ".join(target_users))
+    if core_features:
+        sections.append("Funcionalidades core:\n- " + "\n- ".join(core_features))
+    if constraints:
+        sections.append("Restrições:\n- " + "\n- ".join(constraints))
+
+    guardrails = build_output_guardrails(
+        request_constraints,
+        allow_code=False,
+        allow_sql=False,
+        allow_database=False,
+        allow_api=False,
+        allow_backend=False,
+        allow_frontend=False,
+    )
+
+    instructions = [
+        "Responde em Markdown e foca apenas a modelação conceptual do domínio.",
+        "Devolve só entidades, campos principais e relações relevantes.",
+        "Não geres SQL.",
+        "Não cries CREATE TABLE.",
+        "Não desenhes API nem endpoints.",
+        "Não incluas backend, frontend nem código.",
+        "Se o pedido falar em tabelas conceptuais, trata-as como entidades de domínio.",
+        "Se não houver pedido de detalhe, limita-te a 3 a 5 entidades principais.",
+        "Formato esperado:",
+        "# 1. Entidades principais",
+        "## Nome da entidade",
+        "- Campos principais: ...",
+        "- Relações: ...",
+        "- Observações: ... (opcional)",
+    ]
+    if request_constraints.forbid_explanations:
+        instructions.append("Não incluas resumo inicial nem secção final; vai direto às entidades.")
+    instructions.extend(guardrails)
+
+    return [
+        {"role": "system", "content": "\n".join(instructions)},
+        {"role": "user", "content": "\n\n".join(sections).strip()},
+    ]
 
 
 def _build_api_endpoints_prompt(
@@ -396,6 +586,7 @@ def _build_api_endpoints_prompt(
     core_features: list[str],
     auth_style: str,
     constraints: list[str],
+    request_constraints,
 ) -> list[dict[str, str]]:
     sections = [f"Projeto:\n{project_brief}"]
 
@@ -408,8 +599,18 @@ def _build_api_endpoints_prompt(
     if constraints:
         sections.append("Restrições:\n- " + "\n- ".join(constraints))
 
+    guardrails = build_output_guardrails(
+        request_constraints,
+        allow_code=False,
+        allow_sql=False,
+        allow_database=False,
+        allow_api=True,
+        allow_backend=False,
+        allow_frontend=False,
+    )
+
     instructions = """
-Devolve apenas JSON válido com esta estrutura:
+Devolve JSON puro e válido com esta estrutura:
 {
   "api_summary": "string",
   "suggested_base_path": "string opcional",
@@ -429,8 +630,17 @@ Regras:
 - Prefere REST simples.
 - Usa paths consistentes e previsíveis.
 - Inclui request e response quando fizer sentido.
+- Não incluas SQL, entidades completas, frontend nem código longo.
+- Se o pedido for curto ou simples, usa descrições curtas.
+- A tua primeira opção deve ser sempre JSON válido e sem markdown.
+- Se por algum motivo falhares no JSON, devolve apenas linhas no formato: `- METHOD /path: descrição curta`.
 - Não uses markdown nem texto fora do JSON.
 """.strip()
+
+    if request_constraints.forbid_explanations:
+        instructions = f"{instructions}\n- Não incluas texto introdutório nem comentários extra."
+    if guardrails:
+        instructions = f"{instructions}\n- " + "\n- ".join(guardrails)
 
     return [
         {"role": "system", "content": instructions},
@@ -477,6 +687,24 @@ def _build_sql_assumptions(
     return assumptions
 
 
+def _build_entities_assumptions(
+    *,
+    target_users: list[str],
+    core_features: list[str],
+    constraints: list[str],
+) -> list[str]:
+    assumptions: list[str] = []
+
+    if not target_users:
+        assumptions.append("Os utilizadores-alvo serão inferidos a partir do briefing principal.")
+    if not core_features:
+        assumptions.append("A modelação vai focar apenas os fluxos essenciais do MVP descrito no briefing.")
+    if not constraints:
+        assumptions.append("Sem restrições explícitas, a proposta assume um domínio simples, com entidades e relações principais.")
+
+    return assumptions
+
+
 def _build_api_assumptions(
     *,
     core_entities: list[str],
@@ -513,21 +741,173 @@ def _build_suggested_sql_file_name(project_brief: str) -> str:
     return "_".join(words) + "_schema"
 
 
+def _render_api_endpoints(endpoints: list[dict[str, str]]) -> str:
+    rendered_lines: list[str] = []
+
+    for endpoint in endpoints:
+        method = str(endpoint.get("method", "")).strip().upper()
+        path = str(endpoint.get("path", "")).strip()
+        purpose = str(endpoint.get("purpose", "")).strip()
+        if not method or not path or not purpose:
+            continue
+
+        rendered_lines.append(f"- {method} {path}: {purpose}")
+
+        request_text = str(endpoint.get("request", "")).strip()
+        response_text = str(endpoint.get("response", "")).strip()
+        if request_text:
+            rendered_lines.append(f"  request: {request_text}")
+        if response_text:
+            rendered_lines.append(f"  response: {response_text}")
+
+    return "\n".join(rendered_lines).strip()
+
+
 def _parse_api_endpoints_response(raw_response: str) -> dict[str, Any]:
+    candidates = _build_api_parse_candidates(raw_response)
+
+    for candidate in candidates:
+        parsed = _try_parse_api_payload(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+
+    return {
+        "api_summary": "",
+        "endpoints": _extract_endpoints_from_text(raw_response),
+    }
+
+
+def _build_api_parse_candidates(raw_response: str) -> list[str]:
     text = raw_response.strip()
+    candidates: list[str] = []
+
+    if text:
+        candidates.append(text)
+
     fenced_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.IGNORECASE | re.DOTALL)
+    if fenced_match:
+        fenced_text = fenced_match.group(1).strip()
+        if fenced_text:
+            candidates.append(fenced_text)
+
+    json_object = _extract_first_json_object(text)
+    if json_object:
+        candidates.append(json_object)
+
+    unique_candidates: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            unique_candidates.append(candidate)
+
+    return unique_candidates
+
+
+def _try_parse_api_payload(text: str) -> dict[str, Any] | None:
+    normalized = text.strip()
+    if not normalized:
+        return None
+
+    normalized = normalized.replace("\u201c", '"').replace("\u201d", '"')
+    normalized = normalized.replace("\u2018", "'").replace("\u2019", "'")
+    normalized = re.sub(r",(\s*[}\]])", r"\1", normalized)
+
+    for candidate in (normalized, normalized.replace("'", '"')):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+
+        if isinstance(parsed, dict):
+            return parsed
+
+    return None
+
+
+def _extract_first_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+
+    for index in range(start, len(text)):
+        char = text[index]
+
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+
+    return None
+
+
+def _extract_endpoints_from_text(raw_response: str) -> list[dict[str, str]]:
+    endpoints: list[dict[str, str]] = []
+
+    for raw_line in raw_response.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        line = re.sub(r"^[-*]\s*", "", line)
+        line = re.sub(r"^`|`$", "", line)
+
+        match = re.match(
+            r"^(GET|POST|PUT|PATCH|DELETE)\s+([^\s:]+)\s*(?:[:\-]\s*(.+))?$",
+            line,
+            re.IGNORECASE,
+        )
+        if not match:
+            continue
+
+        method = match.group(1).upper()
+        path = match.group(2).strip()
+        purpose = str(match.group(3) or "Endpoint essencial da API.").strip()
+
+        endpoints.append(
+            {
+                "method": method,
+                "path": path,
+                "purpose": purpose,
+            }
+        )
+
+    return endpoints
+
+
+def _build_api_text_fallback(raw_response: str) -> str:
+    endpoints = _extract_endpoints_from_text(raw_response)
+    if endpoints:
+        return _render_api_endpoints(endpoints)
+
+    text = raw_response.strip()
+    fenced_match = re.search(r"```(?:json|markdown)?\s*(.*?)```", text, re.IGNORECASE | re.DOTALL)
     if fenced_match:
         text = fenced_match.group(1).strip()
 
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError("A tool suggest_api_endpoints recebeu JSON inválido do modelo.") from exc
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return "Nao foi possivel estruturar endpoints validos, mas a tool recebeu uma resposta vazia."
 
-    if not isinstance(parsed, dict):
-        raise ValueError("A tool suggest_api_endpoints recebeu um payload inválido do modelo.")
-
-    return parsed
+    return "\n".join(lines[:8])
 
 
 def _normalize_endpoints(raw_value: Any) -> list[dict[str, str]]:
