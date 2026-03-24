@@ -11,6 +11,7 @@ Regras:
 - responde apenas com SQL
 - nao uses markdown
 - nao expliques nada antes nem depois
+- nao inventes MVP, API, backend, frontend ou texto narrativo
 - usa snake_case
 - cria tabelas principais, chaves primarias, chaves estrangeiras e indices essenciais
 - inclui campos tecnicos uteis como created_at e updated_at quando fizer sentido
