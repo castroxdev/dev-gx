@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from app.tools.api_design import api_design_tool
 from app.tools.base import PlannerTool
@@ -33,35 +33,36 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
         return ""
 
     sections: list[str] = [
-        "Ferramentas MCP disponiveis:",
-        "Usa apenas tools cujos nomes aparecam exatamente na lista abaixo.",
+        "Ferramentas MCP disponíveis:",
+        "Se responderes em português, usa português natural, com acentuação correta e formulações simples.",
+        "Usa apenas tools cujos nomes apareçam exatamente na lista abaixo.",
         "Nunca inventes nomes de tools, aliases ou nomes mais descritivos do que os fornecidos pelo servidor MCP.",
-        "Se nao existir uma tool adequada na lista, nao devolvas tool_call inventado; responde normalmente com as limitacoes.",
-        "Usa uma tool MCP quando o pedido exigir dados reais, verificacao, inspecao, listagem ou consulta que a tool possa fornecer.",
-        "Se o pedido for claramente para gerar um plano de MVP de um produto, a tua primeira resposta deve ser um tool_call para generate_mvp_plan quando ela estiver disponivel.",
-        "Se o utilizador pedir explicitamente para usar uma tool, a tua primeira resposta deve ser um tool_call valido sempre que exista uma tool adequada.",
-        "Nao respondas com conhecimento geral nem inventes resultados se uma tool MCP puder obter a informacao pedida.",
+        "Se não existir uma tool adequada na lista, não devolvas tool_call inventado; responde normalmente com as limitações.",
+        "Usa uma tool MCP quando o pedido exigir dados reais, verificação, inspeção, listagem ou consulta que a tool possa fornecer.",
+        "Se o pedido for claramente para gerar um plano de MVP de um produto, a tua primeira resposta deve ser um tool_call para generate_mvp_plan quando ela estiver disponível.",
+        "Se o utilizador pedir explicitamente para usar uma tool, a tua primeira resposta deve ser um tool_call válido sempre que exista uma tool adequada.",
+        "Não respondas com conhecimento geral nem inventes resultados se uma tool MCP puder obter a informação pedida.",
         "Quando precisares de usar uma tool MCP, responde apenas com JSON puro neste formato:",
         '{"type":"tool_call","tool":"nome_da_tool","arguments":{"campo":"valor"}}',
-        "Nao uses markdown nem texto extra quando fizeres tool_call.",
-        "Escolhe argumentos simples, validos e alinhados com o input_schema da tool.",
+        "Não uses markdown nem texto extra quando fizeres tool_call.",
+        "Escolhe argumentos simples, válidos e alinhados com o input_schema da tool.",
         "Quando receberes TOOL_RESULT, usa o resultado para continuar ou faz novo tool_call se ainda faltar contexto.",
-        "Se ja tiveres TOOL_RESULT suficiente, responde de forma final sem repetir o JSON de tool_call.",
+        "Se já tiveres TOOL_RESULT suficiente, responde de forma final sem repetir o JSON de tool_call.",
     ]
 
     for tool in tools:
         name = str(tool.get("name", "")).strip()
-        description = str(tool.get("description", "")).strip() or "Sem descricao."
+        description = str(tool.get("description", "")).strip() or "Sem descrição."
         input_schema = tool.get("inputSchema")
         if name:
             sections.append(f"- {name}: {description}")
             if name == "generate_mvp_plan":
                 sections.append(
-                    "  usa_para: pedidos de plano MVP, fases de implementacao, escopo inicial, entidades, base de dados e API de um produto."
+                    "  usa_para: pedidos de plano MVP, fases de implementação, escopo inicial, entidades, base de dados e API de um produto."
                 )
             if name == "generate_sql_schema":
                 sections.append(
-                    "  usa_para: pedidos de schema SQL inicial, tabelas, relacoes, chaves, indices e estrutura de base de dados do MVP."
+                    "  usa_para: pedidos de esquema SQL inicial, tabelas, relações, chaves, índices e estrutura de base de dados do MVP."
                 )
             if name == "suggest_api_endpoints":
                 sections.append(
@@ -71,3 +72,6 @@ def build_tools_prompt_from_mcp(tools: list[dict]) -> str:
                 sections.append(f"  input_schema: {json.dumps(input_schema, ensure_ascii=True)}")
 
     return "\n".join(sections).strip()
+
+
+
