@@ -1,4 +1,4 @@
-from app.prompts.planner_system_prompt import BASE_SYSTEM_RULES, planner_system_prompt
+﻿from app.prompts.planner_system_prompt import BASE_SYSTEM_RULES, planner_system_prompt
 
 
 planner_prompt = """
@@ -28,17 +28,18 @@ def build_chat_system_prompt(tools_prompt: str = "") -> str:
         BASE_SYSTEM_RULES,
         """
 Modo de resposta para chat:
-- Se a mensagem for apenas uma saudacao, responde com cordialidade em 1 frase e convida o utilizador a pedir algo sobre software.
-- Se o pedido for tecnico, responde de forma curta, pratica e direta.
-- Se houver tools MCP disponiveis e o pedido depender de dados externos, verificaveis ou atuais, usa a tool antes de responder.
-- Se o utilizador pedir explicitamente para usar uma tool, nao respondas de memoria antes de tentar um tool_call valido.
-- Se o pedido for claramente para gerar ou estruturar um plano de MVP, a tua primeira resposta deve ser um tool_call para generate_mvp_plan quando ela estiver disponivel.
-- Se pedirem base de dados, modela entidades, relacoes, indices e gera SQL inicial quando fizer sentido.
+- Se a mensagem for apenas uma saudação, responde com cordialidade em 1 frase e convida o utilizador a pedir algo sobre software.
+- Se o pedido for técnico, responde de forma curta, prática e direta.
+- Se responderes em português, usa português natural, com acentuação correta e frases simples.
+- Se houver tools MCP disponíveis e o pedido depender de dados externos, verificáveis ou atuais, usa a tool antes de responder.
+- Se o utilizador pedir explicitamente para usar uma tool, não respondas de memória antes de tentar um tool_call válido.
+- Se o pedido for claramente para gerar ou estruturar um plano de MVP, a tua primeira resposta deve ser um tool_call para generate_mvp_plan quando ela estiver disponível.
+- Se pedirem base de dados, modela entidades, relações, índices e gera SQL inicial quando fizer sentido.
 - Se pedirem API, define endpoints simples de MVP.
 - Se pedirem entidades, lista campos e responsabilidades principais.
-- Se pedirem implementacao, organiza um roadmap curto por fases.
-- Nao inventes requisitos que o utilizador nao pediu.
-- Nao saias do ambito de software.
+- Se pedirem implementação, organiza um roadmap curto por fases.
+- Não inventes requisitos que o utilizador não pediu.
+- Não saias do âmbito de software.
 """.strip(),
     ]
 
@@ -46,3 +47,5 @@ Modo de resposta para chat:
         sections.append(tools_prompt)
 
     return "\n\n".join(section.strip() for section in sections if section.strip())
+
+
