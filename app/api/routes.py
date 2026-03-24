@@ -110,6 +110,7 @@ def add_tool_call_trace(
     *,
     tool_name: str,
     status: str,
+    duration_ms: float | None = None,
     tool_input: dict | None = None,
     tool_result: object | None = None,
     error_detail: str | None = None,
@@ -118,10 +119,26 @@ def add_tool_call_trace(
         request_id,
         stage="tool_call",
         status=status,
+        duration_ms=duration_ms,
         tool_name=tool_name,
         tool_input=tool_input,
         tool_result=tool_result,
         error_detail=error_detail,
+    )
+
+
+def add_fallback_trace(
+    request_id: str,
+    *,
+    reason: str,
+    tool_name: str | None = None,
+) -> None:
+    trace_store.add_step(
+        request_id,
+        stage="fallback_used",
+        status="completed",
+        reason=reason,
+        tool_name=tool_name,
     )
 
 
@@ -411,9 +428,12 @@ async def execute_explicit_tool_request(
             status="started",
         )
 
+    tool_started_at = perf_counter()
+
     try:
         tool_result = await execute_tool_by_name(tool_name, arguments)
     except (McpServiceError, ValueError) as exc:
+        tool_duration_ms = (perf_counter() - tool_started_at) * 1000
         if request_id is not None:
             add_tool_call_trace(
                 request_id,
@@ -422,9 +442,16 @@ async def execute_explicit_tool_request(
                 tool_result={"error": str(exc)},
                 error_detail=str(exc),
                 status="error",
+                duration_ms=tool_duration_ms,
+            )
+            add_fallback_trace(
+                request_id,
+                tool_name=tool_name,
+                reason="tool_error",
             )
         return build_tool_result_fallback(tool_name, {"error": str(exc)})
 
+    tool_duration_ms = (perf_counter() - tool_started_at) * 1000
     if request_id is not None:
         add_tool_call_trace(
             request_id,
@@ -432,6 +459,12 @@ async def execute_explicit_tool_request(
             tool_input=arguments,
             tool_result=tool_result,
             status="completed",
+            duration_ms=tool_duration_ms,
+        )
+        add_fallback_trace(
+            request_id,
+            tool_name=tool_name,
+            reason="tool_result_rendered",
         )
 
     return build_tool_result_fallback(tool_name, tool_result)
@@ -468,6 +501,17 @@ async def execute_chat_with_mcp_tools(
                 and "nao devolveu conteudo para a resposta" in str(exc).lower()
             ):
                 tool_name, tool_result = last_successful_tool_result
+                request_id = (
+                    str(log_context["request_id"])
+                    if log_context and log_context.get("request_id")
+                    else None
+                )
+                if request_id is not None:
+                    add_fallback_trace(
+                        request_id,
+                        tool_name=tool_name,
+                        reason="empty_model_response",
+                    )
                 return build_tool_result_fallback(tool_name, tool_result)
             raise
         raw_tool_call = extract_tool_call_response(reply)
@@ -488,6 +532,11 @@ async def execute_chat_with_mcp_tools(
                         status="error",
                         error_detail="tool_call_not_executable",
                     )
+                    add_fallback_trace(
+                        request_id,
+                        tool_name=raw_tool_call["tool"],
+                        reason="invalid_tool_call",
+                    )
                 return build_invalid_tool_call_fallback(raw_tool_call["tool"])
             return reply
 
@@ -502,8 +551,11 @@ async def execute_chat_with_mcp_tools(
 
         conversation.append({"role": "assistant", "content": reply})
 
+        tool_started_at = perf_counter()
+
         try:
             tool_result = await execute_tool_by_name(tool_call["tool"], tool_call["arguments"])
+            tool_duration_ms = (perf_counter() - tool_started_at) * 1000
             last_successful_tool_result = (tool_call["tool"], tool_result)
             if request_id is not None:
                 add_tool_call_trace(
@@ -512,9 +564,11 @@ async def execute_chat_with_mcp_tools(
                     tool_input=tool_call["arguments"],
                     tool_result=tool_result,
                     status="completed",
+                    duration_ms=tool_duration_ms,
                 )
             tool_result_message = format_tool_result(tool_call["tool"], tool_result)
         except (McpServiceError, ValueError) as exc:
+            tool_duration_ms = (perf_counter() - tool_started_at) * 1000
             if request_id is not None:
                 add_tool_call_trace(
                     request_id,
@@ -523,6 +577,7 @@ async def execute_chat_with_mcp_tools(
                     tool_result={"error": str(exc)},
                     error_detail=str(exc),
                     status="error",
+                    duration_ms=tool_duration_ms,
                 )
             tool_result_message = format_tool_result(
                 tool_call["tool"],
@@ -969,6 +1024,7 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
+                "X-Trace-Request-Id": str(log_context["request_id"]),
             },
         )
 
@@ -1089,5 +1145,8 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "X-Trace-Request-Id": str(stream_log_context["request_id"]),
         },
     )
+
+
